@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a reproducible problem in the DAML JetBrains plugin.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      placeholder: "0.4.0"
+    validations:
+      required: true
+  - type: input
+    id: ide-version
+    attributes:
+      label: JetBrains IDE and build
+      placeholder: "GoLand 2026.1.2, build GO-261.24374.154"
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: DAML/DPM/Canton versions
+      placeholder: "dpm --version, daml version, canton --version"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest project shape, file, action, and expected result.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Attach IDE logs, Script Results output, screenshots, or stack traces when available.

@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DAML project file (daml.yaml)",
+  "description": "Schema for daml.yaml — the project file consumed by the daml assistant.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "sdk-version": {
+      "type": "string",
+      "description": "DAML SDK version this project pins to (e.g. \"2.9.0\" or \"3.4.0\"). The daml assistant uses this to resolve damlc."
+    },
+    "daml-version": {
+      "type": "string",
+      "description": "Alias for sdk-version on newer SDK installs (DPM)."
+    },
+    "name": {
+      "type": "string",
+      "description": "Package name (used as the DAR name)."
+    },
+    "version": {
+      "type": "string",
+      "description": "Package version, e.g. \"0.1.0\"."
+    },
+    "source": {
+      "type": "string",
+      "description": "Path to the DAML source root (relative to this file). Usually \"daml\" or \"src/main/daml\"."
+    },
+    "main": {
+      "type": "string",
+      "description": "Optional explicit entry-point module path."
+    },
+    "dependencies": {
+      "type": "array",
+      "description": "DAR dependencies (paths or names of standard libraries).",
+      "items": { "type": "string" }
+    },
+    "data-dependencies": {
+      "type": "array",
+      "description": "Data DAR dependencies (paths to .dar files).",
+      "items": { "type": "string" }
+    },
+    "build-options": {
+      "type": "array",
+      "description": "Extra arguments forwarded to damlc build.",
+      "items": { "type": "string" }
+    },
+    "parties": {
+      "type": "array",
+      "description": "Parties allocated by daml start in the local sandbox.",
+      "items": { "type": "string" }
+    },
+    "module-prefixes": {
+      "type": "object",
+      "description": "Mapping from package id to module prefix (used for collision avoidance).",
+      "additionalProperties": { "type": "string" }
+    },
+    "sandbox-options": {
+      "type": "array",
+      "description": "Arguments forwarded to daml sandbox by daml start.",
+      "items": { "type": "string" }
+    },
+    "script-service": {
+      "type": "object",
+      "description": "Script-service runtime options.",
+      "additionalProperties": true
+    },
+    "codegen": {
+      "type": "object",
+      "description": "Per-language codegen settings.",
+      "additionalProperties": true,
+      "properties": {
+        "java": { "type": "object", "additionalProperties": true },
+        "ts": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "daml-tar-path": {
+      "type": "string",
+      "description": "Override DAR output path (default .daml/dist/<name>-<version>.dar)."
+    },
+    "init-script": {
+      "type": "string",
+      "description": "Module:script identifier run by `daml start`."
+    },
+    "start-navigator": { "type": "boolean" },
+    "open-browser": { "type": "boolean" }
+  },
+  "required": ["name", "version", "source"],
+  "anyOf": [
+    { "required": ["sdk-version"] },
+    { "required": ["daml-version"] }
+  ]
+}

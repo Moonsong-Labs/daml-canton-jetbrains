@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8"/>
+    <!--
+      CSP rationale: the only legitimate script source is the data: URL we inject ourselves
+      via the host (see ScriptResultsPanel.loadInitialHtml). Server-pushed HTML carries
+      transaction-tree markup; any <script>, javascript:, or on*-handler in it is a defect
+      or a hostile payload. Block them at the browser level; the JS sanitizer in
+      webview.js is a second line of defense.
+    -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none'; script-src data:; style-src data: 'unsafe-inline'; img-src data:; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';"/>
+    <title>DAML Script Results</title>
+    <link rel="stylesheet" type="text/css" href="$webviewCss"/>
+</head>
+<body class="empty hide_archived hidden_disclosure $webviewTheme">
+    <div id="app" class="explorer">
+        <header class="explorer-header">
+            <nav id="view_tabs" class="tabs" aria-label="Script result views"></nav>
+            <div class="toolbar">
+                <label class="search">
+                    <span class="search-icon" aria-hidden="true">/</span>
+                    <input id="search_input" type="search" placeholder="Search results..."/>
+                </label>
+                <label class="toggle"><input type="checkbox" id="show_archived"/> Archived</label>
+                <label class="toggle"><input type="checkbox" id="show_detailed_disclosure"/> Detailed disclosure</label>
+                <span id="progress_status" class="progress-status" hidden></span>
+            </div>
+        </header>
+        <div class="empty-message">No script results yet. Run a script in your .daml file to see results here.</div>
+        <main id="view_root" class="view-root"></main>
+    </div>
+    <script type="text/javascript" src="$webviewSrc"></script>
+</body>
+</html>

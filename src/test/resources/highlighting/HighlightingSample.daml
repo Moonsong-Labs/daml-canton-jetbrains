@@ -1,0 +1,47 @@
+{-# LANGUAGE DamlSyntax #-}
+-- | Deposit workflow demo.
+module Vault.Deposit.Test where
+
+import Daml.Script
+import qualified DA.List as List
+import Vault.Deposit.Processor (IProcessor)
+
+data Receipt a = Receipt
+  with
+    owner : Party
+    payload : a
+    note : Optional Text
+  deriving (Eq, Show)
+
+interface IProcessor where
+  viewtype Receipt Text
+  process : Decimal -> Update ()
+
+template Deposit
+  with
+    operator : Party
+    processor : IProcessor
+  where
+    signatory operator
+    observer operator
+    ensure True
+
+    nonconsuming choice RunDeposit : ()
+      with
+        amount : Decimal
+      controller operator
+      do
+        assert (amount > 0.0)
+        pure ()
+
+setup : Script ()
+setup = script do
+  alice <- allocateParty "Alice"
+  debug "[Test] OK"
+  let maybeOwner = Some alice
+  let due = time (date 2026 Jan 1) 10 00 00
+  _ <- submit alice do
+    createCmd Deposit with operator = alice; processor = processor
+  assertMsg "owner allocated" (maybeOwner /= None)
+  assertMsg "due date exists" (isSome (Some due))
+  pure []

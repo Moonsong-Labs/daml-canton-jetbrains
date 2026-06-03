@@ -1,0 +1,227 @@
+<idea-plugin>
+    <id>com.moonsonglabs.canton-jetbrains-plugin</id>
+    <name>DAML</name>
+    <vendor email="ezequiel@moonsonglabs.com" url="https://github.com/Moonsong-Labs">Moonsong Labs</vendor>
+
+    <description><![CDATA[
+        <p>DAML language support for JetBrains IDEs. Wraps the official DAML language server
+        (<code>daml damlc ide</code> / <code>dpm damlc ide</code>) via the IntelliJ Platform LSP API.</p>
+        <h3>Features</h3>
+        <ul>
+          <li>Syntax highlighting for <code>.daml</code> files</li>
+          <li>Diagnostics, hover, go-to-definition, completion, document symbols, rename — via the official DAML LSP</li>
+          <li>Script Results panel rendered in a JCEF webview, mirroring the VSCode experience</li>
+          <li><code>daml.yaml</code> JSON-schema completion</li>
+          <li>Snippets for <code>template</code>, <code>choice</code>, <code>signatory</code>, <code>script</code>, &hellip;</li>
+        </ul>
+        <h3>Requirements</h3>
+        <ul>
+          <li><code>dpm</code> or the DAML assistant installed locally. The plugin can then install SDK version <code>3.4.11</code> from settings.</li>
+        </ul>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <h3>0.4.0</h3>
+        <ul>
+          <li>Refined the Script Results Tx Tree view with clearer transaction action, decoded event, and party-role sections.</li>
+          <li>Kept long party identifiers compact in event rows while preserving full values in detail panels.</li>
+          <li>Made the Tx Tree Archived and Detailed disclosure controls affect the rendered transaction tree.</li>
+        </ul>
+        <h3>0.3.0</h3>
+        <ul>
+          <li>Added the Managed Canton Sandboxes Network and Explorer views for local multi-participant Canton profiles.</li>
+          <li>Added editable topology diagrams, local Canton generation/launching, endpoint consoles, and ledger activity exploration.</li>
+          <li>Improved DAML navigation, choice usages, local binding resolution, and native highlighting.</li>
+          <li>Reduced generated sandbox output to the files required for reproducible local runs.</li>
+        </ul>
+        <h3>0.2.0</h3>
+        <ul>
+          <li>Redesigned DAML Script Results as an explorer with Overview, Contracts, Tx Tree, Disclosure, Console, and Raw views.</li>
+          <li>Improved DAML highlighting with configurable color settings, richer lexer tokens, and local DAML-aware annotations.</li>
+          <li>Added better local SDK/DPM configuration, terminal PATH integration, and clearer runtime validation.</li>
+          <li>Improved DAML navigation for module imports and explicit imported symbols.</li>
+        </ul>
+        <h3>0.1.0</h3>
+        <ul>
+          <li>Initial release: file type registration, LSP wiring around <code>damlc ide</code>, Script Results panel,
+              snippets, daml.yaml schema, settings.</li>
+        </ul>
+    ]]></change-notes>
+
+	    <depends>com.intellij.modules.platform</depends>
+	    <depends>com.intellij.modules.json</depends>
+	    <depends>org.jetbrains.plugins.yaml</depends>
+	    <depends>org.jetbrains.plugins.terminal</depends>
+	    <!-- Owns the platform.lsp.serverSupportProvider EP and the com.intellij.platform.lsp API.
+	         Without this, registering the EP wires the provider into the shared LspServerManager
+	         from a classloader that cannot resolve the LSP module, which aborts LSP startup for
+	         every server in the IDE (including GoLand's bundled gopls). -->
+	    <depends>com.intellij.modules.lsp</depends>
+    <resource-bundle>messages.DamlBundle</resource-bundle>
+
+    <extensions defaultExtensionNs="com.intellij">
+	        <fileType
+	            name="DAML"
+            language="DAML"
+            extensions="daml"
+            implementationClass="com.moonsonglabs.daml.DamlFileType"
+	            fieldName="INSTANCE"/>
+
+	        <fileType
+	            name="Canton"
+	            language="Canton"
+	            extensions="conf;canton"
+	            patterns="*.canton.sc"
+	            implementationClass="com.moonsonglabs.daml.canton.CantonFileType"
+	            fieldName="INSTANCE"/>
+
+        <lang.commenter language="DAML"
+                        implementationClass="com.moonsonglabs.daml.DamlCommenter"/>
+
+        <lang.parserDefinition language="DAML"
+                               implementationClass="com.moonsonglabs.daml.DamlParserDefinition"/>
+
+	        <lang.syntaxHighlighterFactory language="DAML"
+	                                       implementationClass="com.moonsonglabs.daml.syntax.DamlSyntaxHighlighterFactory"/>
+
+	        <annotator language="DAML"
+	                   implementationClass="com.moonsonglabs.daml.syntax.DamlHighlightingAnnotator"/>
+
+	        <lang.syntaxHighlighterFactory language="Canton"
+	                                       implementationClass="com.moonsonglabs.daml.canton.CantonSyntaxHighlighterFactory"/>
+
+        <lang.psiStructureViewFactory language="DAML"
+                                      implementationClass="com.moonsonglabs.daml.structure.DamlStructureViewFactory"/>
+
+        <psi.referenceContributor language="DAML"
+                                  implementation="com.moonsonglabs.daml.navigation.DamlModuleReferenceContributor"
+                                  order="first"/>
+
+        <psi.referenceContributor language="DAML"
+                                  implementation="com.moonsonglabs.daml.navigation.DamlChoiceReferenceContributor"/>
+
+        <referencesSearch implementation="com.moonsonglabs.daml.navigation.DamlChoiceReferencesSearch"/>
+
+        <findUsagesHandlerFactory implementation="com.moonsonglabs.daml.navigation.DamlChoiceFindUsagesHandlerFactory"
+                                  order="first"/>
+        <usageTargetProvider implementation="com.moonsonglabs.daml.navigation.DamlChoiceUsageTargetProvider"
+                             order="first"/>
+
+        <lang.findUsagesProvider language="DAML"
+                                 implementationClass="com.moonsonglabs.daml.navigation.DamlFindUsagesProvider"/>
+
+        <gotoDeclarationHandler implementation="com.moonsonglabs.daml.navigation.DamlGotoDeclarationHandler"
+                                order="first"/>
+
+        <lang.directNavigationProvider implementation="com.moonsonglabs.daml.navigation.DamlDirectNavigationProvider"
+                                       order="first"/>
+
+        <codeInsight.lineMarkerProvider language="DAML"
+                                        implementationClass="com.moonsonglabs.daml.scriptresults.DamlScriptLineMarkerProvider"/>
+
+        <liveTemplateContext contextId="DAML"
+                             implementation="com.moonsonglabs.daml.snippets.DamlTemplateContextType"/>
+        <defaultLiveTemplates file="/snippets/daml-snippets"/>
+
+	        <projectConfigurable
+            parentId="language"
+            instance="com.moonsonglabs.daml.settings.DamlSettingsConfigurable"
+            id="com.moonsonglabs.daml.settings"
+            displayName="DAML"
+            nonDefaultProject="false"/>
+
+	        <colorSettingsPage implementation="com.moonsonglabs.daml.syntax.DamlColorSettingsPage"/>
+
+	        <toolWindow id="DAML Script Results"
+	                    anchor="bottom"
+	                    factoryClass="com.moonsonglabs.daml.scriptresults.ScriptResultsToolWindowFactory"
+	                    icon="com.moonsonglabs.daml.DamlIcons.WhiteToolWindow"/>
+
+	        <toolWindow id="Managed Canton Sandboxes"
+	                    anchor="right"
+	                    factoryClass="com.moonsonglabs.daml.sandbox.CantonSandboxToolWindowFactory"
+	                    icon="com.moonsonglabs.daml.DamlIcons.WhiteToolWindow"/>
+
+	        <notificationGroup id="DAML" displayType="BALLOON"/>
+
+	        <directoryIndexExcludePolicy implementation="com.moonsonglabs.daml.workspace.DamlDirectoryExcludePolicy"/>
+
+	        <postStartupActivity implementation="com.moonsonglabs.daml.DamlStartupActivity"/>
+	        <platform.lsp.serverSupportProvider implementation="com.moonsonglabs.daml.lsp.DamlLspServerSupportProvider"/>
+
+	        <configurationType implementation="com.moonsonglabs.daml.run.DamlRunConfigurationType"/>
+	        <configurationType implementation="com.moonsonglabs.daml.run.CantonRunConfigurationType"/>
+	        <runConfigurationProducer implementation="com.moonsonglabs.daml.run.DamlRunConfigurationProducer"/>
+	        <runConfigurationProducer implementation="com.moonsonglabs.daml.run.CantonRunConfigurationProducer"/>
+	    </extensions>
+
+	    <extensions defaultExtensionNs="JavaScript.JsonSchema">
+	        <ProviderFactory implementation="com.moonsonglabs.daml.schemas.DamlYamlSchemaProviderFactory"/>
+	    </extensions>
+
+    <extensions defaultExtensionNs="org.jetbrains.plugins.terminal">
+        <localTerminalCustomizer implementation="com.moonsonglabs.daml.terminal.DamlTerminalCustomizer"/>
+    </extensions>
+
+    <actions>
+        <action id="DAML.OpenDocs"
+                class="com.moonsonglabs.daml.actions.OpenDamlDocsAction"
+                text="Open DAML Documentation"
+                description="Open the DAML documentation site in your browser"/>
+	        <action id="DAML.RestartServer"
+	                class="com.moonsonglabs.daml.actions.RestartServerAction"
+	                text="Restart DAML Language Server"
+	                description="Stop and restart the DAML LSP for the current project">
+	            <add-to-group group-id="ToolsMenu" anchor="last"/>
+	        </action>
+	        <action id="DAML.ValidateRuntime"
+	                class="com.moonsonglabs.daml.actions.ValidateRuntimeAction"
+	                text="Validate Canton/DAML Runtime"
+	                description="Check whether DAML, DPM, Canton, Java, and Node are available locally">
+	            <add-to-group group-id="ToolsMenu" anchor="last"/>
+	        </action>
+	        <action id="DAML.ShowScriptResultsForCurrentScript"
+	                class="com.moonsonglabs.daml.actions.RunDamlScriptResultsAction"
+	                text="Show DAML Script Results"
+	                description="Run the DAML script under the caret and show the visual Script Results panel">
+	            <add-to-group group-id="ToolsMenu" anchor="last"/>
+	            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+	        </action>
+	        <action id="DAML.RunBuild"
+	                class="com.moonsonglabs.daml.actions.RunDamlBuildAction"
+	                text="Run DAML Build"
+	                description="Run daml build in the current DAML workspace">
+	            <add-to-group group-id="ToolsMenu" anchor="last"/>
+	        </action>
+	        <action id="DAML.RunTest"
+	                class="com.moonsonglabs.daml.actions.RunDamlTestAction"
+	                text="Run DAML Test"
+	                description="Run daml test in the current DAML workspace">
+	            <add-to-group group-id="ToolsMenu" anchor="last"/>
+	        </action>
+	        <action id="DAML.RunScript"
+	                class="com.moonsonglabs.daml.actions.RunDamlScriptAction"
+	                text="Run DAML Script"
+	                description="Run daml script for the current DAML file or script declaration">
+	            <add-to-group group-id="ToolsMenu" anchor="last"/>
+	        </action>
+	        <action id="DAML.RunStart"
+	                class="com.moonsonglabs.daml.actions.RunDamlStartAction"
+	                text="Run DAML Start"
+	                description="Run daml start in the current DAML workspace">
+	            <add-to-group group-id="ToolsMenu" anchor="last"/>
+	        </action>
+	        <action id="Canton.RunConfig"
+	                class="com.moonsonglabs.daml.actions.RunCantonConfigAction"
+	                text="Run Canton Config"
+	                description="Run canton with the current config file">
+	            <add-to-group group-id="ToolsMenu" anchor="last"/>
+	        </action>
+	        <action id="Canton.RunScript"
+	                class="com.moonsonglabs.daml.actions.RunCantonScriptAction"
+	                text="Run Canton Script"
+	                description="Run canton with the current console/bootstrap script">
+	            <add-to-group group-id="ToolsMenu" anchor="last"/>
+	        </action>
+	    </actions>
+	</idea-plugin>
