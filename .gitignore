@@ -1,0 +1,16 @@
+.gradle/
+build/
+.idea/
+.vscode/
+*.iml
+out/
+.kotlin/
+local.properties
+.intellijPlatform/
+.canton-sandboxes/
+.qodana/
+*.hprof
+*.jfr
+gradle-app.setting
+!gradle-wrapper.jar
+.DS_Store

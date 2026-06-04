@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DAML multi-package workspace (multi-package.yaml)",
+  "description": "Workspace manifest enumerating sibling DAML packages for damlc multi-ide.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "packages": {
+      "type": "array",
+      "description": "Relative paths to directories containing daml.yaml files.",
+      "items": { "type": "string" }
+    },
+    "projects": {
+      "type": "array",
+      "description": "Alias for packages on some SDK versions.",
+      "items": { "type": "string" }
+    }
+  }
+}

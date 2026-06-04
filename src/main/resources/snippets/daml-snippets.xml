@@ -1,0 +1,93 @@
+<templateSet group="DAML">
+    <template name="template" value="template $NAME$&#10;  with&#10;    $PARTY$ : $PARTY_TYPE$&#10;  where&#10;    signatory $PARTY$&#10;    $END$"
+              description="DAML template definition" toReformat="false" toShortenFQNames="true">
+        <variable name="NAME" expression="" defaultValue="&quot;Name&quot;" alwaysStopAt="true"/>
+        <variable name="PARTY" expression="" defaultValue="&quot;party&quot;" alwaysStopAt="true"/>
+        <variable name="PARTY_TYPE" expression="" defaultValue="&quot;Party&quot;" alwaysStopAt="true"/>
+        <context>
+            <option name="DAML" value="true"/>
+        </context>
+    </template>
+
+    <template name="choice" value="choice $NAME$ : $RET$ with&#10;    $PARTY$ : Party&#10;  controller $PARTY$&#10;    do&#10;      $END$"
+              description="DAML choice with controller block" toReformat="false" toShortenFQNames="false">
+        <variable name="NAME" expression="" defaultValue="&quot;Call&quot;" alwaysStopAt="true"/>
+        <variable name="RET" expression="" defaultValue="&quot;ContractId Self&quot;" alwaysStopAt="true"/>
+        <variable name="PARTY" expression="" defaultValue="&quot;party&quot;" alwaysStopAt="true"/>
+        <context>
+            <option name="DAML" value="true"/>
+        </context>
+    </template>
+
+    <template name="signatory" value="signatory $PARTY$&#10;$END$"
+              description="DAML signatory clause" toReformat="false" toShortenFQNames="false">
+        <variable name="PARTY" expression="" defaultValue="&quot;owner&quot;" alwaysStopAt="true"/>
+        <context>
+            <option name="DAML" value="true"/>
+        </context>
+    </template>
+
+    <template name="observer" value="observer $PARTY$&#10;$END$"
+              description="DAML observer clause" toReformat="false" toShortenFQNames="false">
+        <variable name="PARTY" expression="" defaultValue="&quot;regulator&quot;" alwaysStopAt="true"/>
+        <context>
+            <option name="DAML" value="true"/>
+        </context>
+    </template>
+
+    <template name="script" value="$NAME$ = script do&#10;  $P$ &lt;- allocateParty &quot;$PARTY$&quot;&#10;  $END$"
+              description="DAML script" toReformat="false" toShortenFQNames="false">
+        <variable name="NAME" expression="" defaultValue="&quot;test&quot;" alwaysStopAt="true"/>
+        <variable name="P" expression="" defaultValue="&quot;p&quot;" alwaysStopAt="true"/>
+        <variable name="PARTY" expression="" defaultValue="&quot;Alice&quot;" alwaysStopAt="true"/>
+        <context>
+            <option name="DAML" value="true"/>
+        </context>
+    </template>
+
+    <template name="create" value="create $THIS$ with $FIELD$ = $VALUE$&#10;$END$"
+              description="DAML create expression" toReformat="false" toShortenFQNames="false">
+        <variable name="THIS" expression="" defaultValue="&quot;this&quot;" alwaysStopAt="true"/>
+        <variable name="FIELD" expression="" defaultValue="&quot;owner&quot;" alwaysStopAt="true"/>
+        <variable name="VALUE" expression="" defaultValue="&quot;newOwner&quot;" alwaysStopAt="true"/>
+        <context>
+            <option name="DAML" value="true"/>
+        </context>
+    </template>
+
+    <template name="exercise" value="exercise $CID$ $CHOICE$"
+              description="DAML exercise expression" toReformat="false" toShortenFQNames="false">
+        <variable name="CID" expression="" defaultValue="&quot;contractId&quot;" alwaysStopAt="true"/>
+        <variable name="CHOICE" expression="" defaultValue="&quot;Transfer&quot;" alwaysStopAt="true"/>
+        <context>
+            <option name="DAML" value="true"/>
+        </context>
+    </template>
+
+    <template name="fetch" value="$REC$ &lt;- fetch $CID$&#10;$END$"
+              description="DAML fetch + bind" toReformat="false" toShortenFQNames="false">
+        <variable name="REC" expression="" defaultValue="&quot;rec&quot;" alwaysStopAt="true"/>
+        <variable name="CID" expression="" defaultValue="&quot;contractId&quot;" alwaysStopAt="true"/>
+        <context>
+            <option name="DAML" value="true"/>
+        </context>
+    </template>
+
+    <template name="module" value="module $MODULE$ where&#10;&#10;$END$"
+              description="DAML module header" toReformat="false" toShortenFQNames="false">
+        <variable name="MODULE" expression="fileNameWithoutExtension()" defaultValue="&quot;Main&quot;" alwaysStopAt="true"/>
+        <context>
+            <option name="DAML" value="true"/>
+        </context>
+    </template>
+
+    <template name="data" value="data $NAME$ = $NAME$&#10;  with&#10;    $FIELD$ : $TYPE$&#10;    $END$"
+              description="DAML record data declaration" toReformat="false" toShortenFQNames="false">
+        <variable name="NAME" expression="" defaultValue="&quot;Type&quot;" alwaysStopAt="true"/>
+        <variable name="FIELD" expression="" defaultValue="&quot;name&quot;" alwaysStopAt="true"/>
+        <variable name="TYPE" expression="" defaultValue="&quot;Text&quot;" alwaysStopAt="true"/>
+        <context>
+            <option name="DAML" value="true"/>
+        </context>
+    </template>
+</templateSet>

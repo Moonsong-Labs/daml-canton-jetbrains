@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest an improvement for DAML, Canton, Script Results, or managed sandbox workflows.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is slow, missing, confusing, or error-prone today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the IDE behavior you expect, including any relevant JetBrains UI surface.
+    validations:
+      required: true
+  - type: input
+    id: context
+    attributes:
+      label: Relevant area
+      placeholder: "LSP, navigation, Script Results, managed Canton sandboxes, run configurations"
