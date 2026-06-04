@@ -34,6 +34,13 @@ jobs:
       - name: Build and verify plugin
         run: ./gradlew --no-daemon --no-configuration-cache test verifyPluginProjectConfiguration verifyPluginStructure buildPlugin
 
+      - name: Upload plugin ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: daml-canton-jetbrains-plugin
+          path: build/distributions/*.zip
+          if-no-files-found: error
+
       - name: Create draft GitHub release
         uses: softprops/action-gh-release@v3
         with:
