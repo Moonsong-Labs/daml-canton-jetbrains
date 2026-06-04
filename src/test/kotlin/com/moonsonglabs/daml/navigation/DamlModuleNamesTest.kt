@@ -7,19 +7,19 @@ import org.junit.Test
 class DamlModuleNamesTest {
     @Test
     fun `parses module declaration`() {
-        val text = "module Vault.Impl.SimpleProcessor where\n"
+        val text = "module Sample.Impl.SimpleProcessor where\n"
         assertEquals(
-            DamlModuleNames.ModuleDeclaration("Vault.Impl.SimpleProcessor", text.indexOf("Vault")),
+            DamlModuleNames.ModuleDeclaration("Sample.Impl.SimpleProcessor", text.indexOf("Sample")),
             DamlModuleNames.declaredModule(text)
         )
     }
 
     @Test
     fun `parses qualified import at component offset`() {
-        val text = "import qualified Vault.Impl.SimpleProcessor as Processor\n"
+        val text = "import qualified Sample.Impl.SimpleProcessor as Processor\n"
         val ref = DamlModuleNames.importAt(text, text.indexOf("SimpleProcessor"))!!
-        assertEquals("Vault.Impl.SimpleProcessor", ref.moduleName)
-        assertEquals(text.indexOf("Vault"), ref.startOffset)
+        assertEquals("Sample.Impl.SimpleProcessor", ref.moduleName)
+        assertEquals(text.indexOf("Sample"), ref.startOffset)
     }
 
     @Test
@@ -29,9 +29,9 @@ class DamlModuleNamesTest {
 
     @Test
     fun `parses explicit import symbol at symbol offset`() {
-        val text = "import Vault.Deposit.Processor (IProcessor)\n"
+        val text = "import Sample.Deposit.Processor (IProcessor)\n"
         val ref = DamlModuleNames.importAt(text, text.indexOf("IProcessor"))!!
-        assertEquals("Vault.Deposit.Processor", ref.moduleName)
+        assertEquals("Sample.Deposit.Processor", ref.moduleName)
         assertEquals("IProcessor", ref.symbolName)
         assertEquals(text.indexOf("IProcessor"), ref.symbolStartOffset)
     }
@@ -39,13 +39,13 @@ class DamlModuleNamesTest {
     @Test
     fun `parses import declarations with aliases and explicit symbols`() {
         val text = """
-import qualified Vault.Vault as V
-import Vault.Component.KYCPolicy (IKYCPolicy, VKYCPolicy(..))
+import qualified Sample.Sample as V
+import Sample.Component.KYCPolicy (IKYCPolicy, VKYCPolicy(..))
 """.trimIndent()
 
         val imports = DamlModuleNames.imports(text)
 
-        assertEquals("Vault.Vault", imports[0].moduleName)
+        assertEquals("Sample.Sample", imports[0].moduleName)
         assertEquals(true, imports[0].qualified)
         assertEquals("V", imports[0].alias)
         assertEquals(setOf("IKYCPolicy", "VKYCPolicy"), imports[1].symbols)
@@ -53,7 +53,7 @@ import Vault.Component.KYCPolicy (IKYCPolicy, VKYCPolicy(..))
 
     @Test
     fun `parses qualified source symbol references`() {
-        val text = "submit operator ${'$'} exerciseCmd vault0 V.RouteDeposit with depositor"
+        val text = "submit operator ${'$'} exerciseCmd sample0 V.RouteDeposit with depositor"
         val routeDeposit = DamlModuleNames.symbolAt(text, text.indexOf("RouteDeposit"))!!
 
         assertEquals("RouteDeposit", routeDeposit.name)
@@ -91,7 +91,7 @@ debugText = "IKYCPolicy"
     @Test
     fun `finds interface declaration`() {
         val text = """
-module Vault.Deposit.Processor where
+module Sample.Deposit.Processor where
 
 interface IProcessor where
   viewtype V

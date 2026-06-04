@@ -285,28 +285,28 @@ class TopologyGraphPanelInteractionTest {
     @Test
     fun `participant node tooltip names assigned dar files instead of only showing a count`() {
         val profile = SandboxDefaults.newProfile(null).apply {
-            darAssignments.add(DarAssignment("/workspace/.daml/dist/private-settlement.dar", mutableListOf(participants.first().id)))
+            darAssignments.add(DarAssignment("/workspace/.daml/dist/sample-settlement.dar", mutableListOf(participants.first().id)))
         }
         val panel = renderedPanel(profile)
 
         val tooltip = panel.getToolTipText(MouseEvent(panel, MouseEvent.MOUSE_MOVED, System.currentTimeMillis(), 0, 120, 236, 0, false))
 
-        assertTrue(tooltip.orEmpty().contains("DAR private-settlement.dar"))
+        assertTrue(tooltip.orEmpty().contains("DAR sample-settlement.dar"))
         assertFalse(tooltip.orEmpty().contains("1 DAR"))
     }
 
     @Test
     fun `participant node tooltip summarizes multiple assigned dar file names`() {
         val profile = SandboxDefaults.newProfile(null).apply {
-            darAssignments.add(DarAssignment("/workspace/.daml/dist/private-settlement.dar", mutableListOf(participants.first().id)))
-            darAssignments.add(DarAssignment("/workspace/.daml/dist/vault-interface.dar", mutableListOf(participants.first().id)))
-            darAssignments.add(DarAssignment("/workspace/.daml/dist/vault-impl.dar", mutableListOf(participants.first().id)))
+            darAssignments.add(DarAssignment("/workspace/.daml/dist/sample-settlement.dar", mutableListOf(participants.first().id)))
+            darAssignments.add(DarAssignment("/workspace/.daml/dist/sample-interface.dar", mutableListOf(participants.first().id)))
+            darAssignments.add(DarAssignment("/workspace/.daml/dist/sample-impl.dar", mutableListOf(participants.first().id)))
         }
         val panel = renderedPanel(profile)
 
         val tooltip = panel.getToolTipText(MouseEvent(panel, MouseEvent.MOUSE_MOVED, System.currentTimeMillis(), 0, 120, 236, 0, false))
 
-        assertTrue(tooltip.orEmpty().contains("DARs private-settlement.dar, vault-impl.dar +1 more"))
+        assertTrue(tooltip.orEmpty().contains("DARs sample-impl.dar, sample-interface.dar +1 more"))
     }
 
     @Test

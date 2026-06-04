@@ -48,7 +48,7 @@ class SandboxLedgerExplorerTest {
                       "offset": 44,
                       "contractId": "00active",
                       "templateId": "pkg:PrivateSettlement:PublicSettlement",
-                      "packageName": "private-settlement-bridge",
+                      "packageName": "sample-settlement-bridge",
                       "createdAt": "2026-05-25T12:35:56Z",
                       "signatories": ["BridgePublic::party"],
                       "observers": [],
@@ -75,7 +75,7 @@ class SandboxLedgerExplorerTest {
                             "offset": 47,
                             "contractId": "00active",
                             "templateId": "pkg:PrivateSettlement:PrivateOffer",
-                            "packageName": "private-settlement-bridge",
+                            "packageName": "sample-settlement-bridge",
                             "witnessParties": ["IssuerPrivate::party"]
                           }
                         }
@@ -110,7 +110,7 @@ class SandboxLedgerExplorerTest {
                         "offset": 55,
                         "contractId": "00wrapped",
                         "templateId": "pkg:PrivateSettlement:PrivateOffer",
-                        "packageName": "private-settlement-bridge",
+                        "packageName": "sample-settlement-bridge",
                         "witnessParties": ["IssuerPrivate::party"]
                       }
                     }

@@ -1,10 +1,10 @@
 {-# LANGUAGE DamlSyntax #-}
 -- | Deposit workflow demo.
-module Vault.Deposit.Test where
+module Sample.Deposit.Test where
 
 import Daml.Script
 import qualified DA.List as List
-import Vault.Deposit.Processor (IProcessor)
+import Sample.Deposit.Processor (IProcessor)
 
 data Receipt a = Receipt
   with

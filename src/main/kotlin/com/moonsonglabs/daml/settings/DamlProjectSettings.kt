@@ -6,6 +6,7 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.components.service
+import com.moonsonglabs.daml.sdk.DamlSdkVersions
 
 @State(
     name = "DamlProjectSettings",
@@ -16,7 +17,7 @@ class DamlProjectSettings : PersistentStateComponent<DamlProjectSettings.State> 
 
     data class State(
         var binaryPath: String = "",
-        var selectedSdkVersion: String = "3.4.11",
+        var selectedSdkVersion: String = DamlSdkVersions.DEFAULT,
         var useDPMWhenAvailable: Boolean = true,
         var logLevel: String = "info",
         var telemetry: String = "opt-out",
@@ -45,7 +46,7 @@ class DamlProjectSettings : PersistentStateComponent<DamlProjectSettings.State> 
         set(value) { state.binaryPath = value }
     var selectedSdkVersion: String
         get() = state.selectedSdkVersion
-        set(value) { state.selectedSdkVersion = value.ifBlank { "3.4.11" } }
+        set(value) { state.selectedSdkVersion = value.ifBlank { DamlSdkVersions.DEFAULT } }
     var useDPMWhenAvailable: Boolean
         get() = true
         set(value) { state.useDPMWhenAvailable = true }

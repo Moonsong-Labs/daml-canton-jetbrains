@@ -1,5 +1,6 @@
 package com.moonsonglabs.daml.sandbox
 
+import com.moonsonglabs.daml.sdk.DamlSdkVersions
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -40,7 +41,7 @@ class SandboxDockerIntegrationTest {
         val containerName = "canton-sandbox-it-${UUID.randomUUID().toString().take(8)}"
         val outputFile = root.resolve("docker-output.log")
         val cantonCommand = """
-            CANTON_JAR="${'$'}{CANTON_JAR:-/home/daml/.dpm/cache/components/canton-enterprise/3.4.11/lib/canton-enterprise-3.4.11.jar}"
+            CANTON_JAR="${'$'}{CANTON_JAR:-/home/daml/.dpm/cache/components/canton-enterprise/${DamlSdkVersions.DEFAULT}/lib/canton-enterprise-${DamlSdkVersions.DEFAULT}.jar}"
             if [ ! -f "${'$'}CANTON_JAR" ]; then
               CANTON_JAR="${'$'}(find /home/daml/.dpm/cache/components -path '*/lib/canton*.jar' -type f 2>/dev/null | sort -r | head -n 1)"
             fi

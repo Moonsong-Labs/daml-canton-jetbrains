@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.moonsonglabs.canton-jetbrains-plugin</id>
     <name>DAML</name>
-    <vendor email="ezequiel@moonsonglabs.com" url="https://github.com/Moonsong-Labs">Moonsong Labs</vendor>
+    <vendor url="https://github.com/Moonsong-Labs">Moonsong Labs</vendor>
 
     <description><![CDATA[
         <p>DAML language support for JetBrains IDEs. Wraps the official DAML language server
@@ -16,12 +16,12 @@
         </ul>
         <h3>Requirements</h3>
         <ul>
-          <li><code>dpm</code> or the DAML assistant installed locally. The plugin can then install SDK version <code>3.4.11</code> from settings.</li>
+          <li><code>dpm</code> or the DAML assistant installed locally. The plugin can then install the SDK version from settings.</li>
         </ul>
     ]]></description>
 
     <change-notes><![CDATA[
-        <h3>0.4.0</h3>
+        <h3>&lt;version&gt;</h3>
         <ul>
           <li>Refined the Script Results Tx Tree view with clearer transaction action, decoded event, and party-role sections.</li>
           <li>Kept long party identifiers compact in event rows while preserving full values in detail panels.</li>

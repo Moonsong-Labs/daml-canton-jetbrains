@@ -8,14 +8,14 @@ body:
     id: plugin-version
     attributes:
       label: Plugin version
-      placeholder: "0.4.0"
+      placeholder: "<version>"
     validations:
       required: true
   - type: input
     id: ide-version
     attributes:
       label: JetBrains IDE and build
-      placeholder: "GoLand 2026.1.2, build GO-261.24374.154"
+      placeholder: "GoLand <ide_version>, build GO-<build>"
     validations:
       required: true
   - type: input

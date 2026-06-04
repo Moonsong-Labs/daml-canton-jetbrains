@@ -9,17 +9,17 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 class DamlDirectoryExcludePolicyTest : BasePlatformTestCase() {
     fun testDamlPackageCacheDirectoryIsExcludedFromProjectSearch() {
         val cached = myFixture.addFileToProject(
-            "vault-impl/.daml/package-database/2.2/vault-interface/Vault/Component/KYCPolicy.daml",
-            "module Vault.Component.KYCPolicy where"
+            "sample-impl/.daml/package-database/2.2/sample-interface/Sample/Component/KYCPolicy.daml",
+            "module Sample.Component.KYCPolicy where"
         )
         val source = myFixture.addFileToProject(
-            "vault-impl/daml/Vault/Component/KYCPolicy.daml",
-            "module Vault.Component.KYCPolicy where"
+            "sample-impl/daml/Sample/Component/KYCPolicy.daml",
+            "module Sample.Component.KYCPolicy where"
         )
         val index = ProjectFileIndex.getInstance(project)
         val excludedUrls = DamlDirectoryExcludePolicy(project).excludeUrlsForProject.toList()
 
-        assertTrue(excludedUrls.any { it.endsWith("/vault-impl/.daml") })
+        assertTrue(excludedUrls.any { it.endsWith("/sample-impl/.daml") })
         ApplicationManager.getApplication().runWriteAction(object : Runnable {
             override fun run() {
                 ProjectRootManagerEx.getInstanceEx(project)

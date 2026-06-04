@@ -11,16 +11,16 @@ import javax.swing.SwingUtilities
 class CantonSandboxPanelVisualTest : BasePlatformTestCase() {
     fun `test renders final network topology screenshot`() {
         val root = Path.of(project.basePath!!).toAbsolutePath().normalize()
-        val dar = root.resolve(".daml/dist/private-settlement-bridge-0.1.0.dar")
+        val dar = root.resolve(".daml/dist/sample-settlement-bridge-0.1.0.dar")
         Files.createDirectories(dar.parent)
         Files.write(dar, byteArrayOf(0x50, 0x4b, 0x03, 0x04))
 
         val profile = SandboxDefaults.newProfile(root).apply {
-            id = "visual-private-settlement"
-            name = "Private Settlement Bridge"
+            id = "visual-sample-settlement"
+            name = "Sample Settlement Bridge"
             portBase = 7400
             workspacePath = root.toString()
-            generatedPath = root.resolve(".canton-sandboxes/private-settlement").toString()
+            generatedPath = root.resolve(".canton-sandboxes/sample-settlement").toString()
             participants.clear()
             participants.add(SandboxDefaults.participant(1, portBase).apply { name = "issuer" })
             participants.add(SandboxDefaults.participant(2, portBase).apply { name = "investor" })
@@ -33,7 +33,7 @@ class CantonSandboxPanelVisualTest : BasePlatformTestCase() {
             bindings.add(ParticipantSyncBinding(participants[1].id, synchronizers[1].id, true))
             bindings.add(ParticipantSyncBinding(participants[2].id, synchronizers[1].id, true))
             bindings.add(ParticipantSyncBinding(participants[2].id, synchronizers[0].id, true))
-            darAssignments.add(DarAssignment(".daml/dist/private-settlement-bridge-0.1.0.dar", participants.map { it.id }.toMutableList()))
+            darAssignments.add(DarAssignment(".daml/dist/sample-settlement-bridge-0.1.0.dar", participants.map { it.id }.toMutableList()))
             partyAllocations.add(PartyAllocation("IssuerPrivate", participants[0].id, synchronizers[1].id))
             partyAllocations.add(PartyAllocation("InvestorPrivate", participants[1].id, synchronizers[1].id))
             partyAllocations.add(PartyAllocation("BridgePrivate", participants[2].id, synchronizers[1].id))

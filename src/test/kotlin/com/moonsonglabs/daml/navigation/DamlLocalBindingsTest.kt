@@ -8,22 +8,22 @@ class DamlLocalBindingsTest {
     @Test
     fun `resolves choice controller argument to with-field`() {
         val text = """
-module Vault.IYieldSource where
+module Sample.IYieldSource where
 
 interface IYieldSource where
   viewtype ()
 
   choice Allocate : ContractId IYieldSource
     with
-      vault : Party
+      sample : Party
       funds : ContractId Holding
-    controller vault
-    do allocateImpl this vault funds
+    controller sample
+    do allocateImpl this sample funds
 """.trimIndent()
-        val usage = DamlModuleNames.symbolAt(text, text.indexOf("vault", text.indexOf("controller")))!!
+        val usage = DamlModuleNames.symbolAt(text, text.indexOf("sample", text.indexOf("controller")))!!
         val binding = DamlLocalBindings.resolve(text, usage)
 
-        assertEquals(text.indexOf("vault : Party"), binding?.startOffset)
+        assertEquals(text.indexOf("sample : Party"), binding?.startOffset)
     }
 
     @Test
@@ -36,20 +36,20 @@ interface I where
 
   choice Allocate : ()
     with
-      vault : Party
-    controller vault
+      sample : Party
+    controller sample
     do pure ()
 
   choice RequestWithdraw : ()
     with
-      vault : Party
-    controller vault
+      sample : Party
+    controller sample
     do pure ()
 """.trimIndent()
-        val secondUsage = DamlModuleNames.symbolAt(text, text.lastIndexOf("vault"))!!
+        val secondUsage = DamlModuleNames.symbolAt(text, text.lastIndexOf("sample"))!!
         val binding = DamlLocalBindings.resolve(text, secondUsage)
 
-        assertEquals(text.indexOf("vault : Party", text.indexOf("RequestWithdraw")), binding?.startOffset)
+        assertEquals(text.indexOf("sample : Party", text.indexOf("RequestWithdraw")), binding?.startOffset)
     }
 
     @Test

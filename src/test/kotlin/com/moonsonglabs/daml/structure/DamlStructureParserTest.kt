@@ -9,10 +9,10 @@ class DamlStructureParserTest {
     fun `classifies module imports declarations choices and values`() {
         val structure = DamlStructureParser.parse(
             """
-module Vault.DepositRequest where
+module Sample.DepositRequest where
 
 import Daml.Script
-import qualified Vault.Common as C
+import qualified Sample.Common as C
 
 data DepositRequestState = Pending | Accepted
 newtype DepositLock = DepositLock ContractId
@@ -36,9 +36,9 @@ topLevelHelper party = pure ()
 """.trimIndent()
         )
 
-        assertEquals("Vault.DepositRequest", structure.module?.name)
+        assertEquals("Sample.DepositRequest", structure.module?.name)
         assertEquals(DamlStructureKind.MODULE, structure.module?.kind)
-        assertEquals(listOf("Daml.Script", "Vault.Common as C"), structure.imports.map { it.name })
+        assertEquals(listOf("Daml.Script", "Sample.Common as C"), structure.imports.map { it.name })
         assertEquals(listOf(DamlStructureKind.IMPORT, DamlStructureKind.IMPORT), structure.imports.map { it.kind })
         assertEquals(
             listOf(

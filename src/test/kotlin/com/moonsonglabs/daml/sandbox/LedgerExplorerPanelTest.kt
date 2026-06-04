@@ -231,7 +231,7 @@ class LedgerExplorerPanelTest : BasePlatformTestCase() {
             offsetText = offset.toString(),
             synchronizerId = "global::abc",
             syncName = "global",
-            packageName = "private-settlement",
+            packageName = "sample-settlement",
             parties = listOf("Operator::party"),
             argumentFields = mapOf("amount" to "42.0"),
             rawJson = """{"contractId":"00active"}"""

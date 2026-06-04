@@ -7,29 +7,29 @@ import com.moonsonglabs.daml.DamlFileType
 class DamlModuleResolverTest : BasePlatformTestCase() {
     fun testSourceSymbolResolutionIgnoresDamlPackageDatabaseCopies() {
         val source = myFixture.addFileToProject(
-            "vault-interface/daml/Vault/Component/KYCPolicy.daml",
+            "sample-interface/daml/Sample/Component/KYCPolicy.daml",
             """
-module Vault.Component.KYCPolicy where
+module Sample.Component.KYCPolicy where
 
 interface IKYCPolicy where
   viewtype ()
 """.trimIndent()
         )
         myFixture.addFileToProject(
-            "vault-impl/.daml/package-database/2.2/vault-interface/Vault/Component/KYCPolicy.daml",
+            "sample-impl/.daml/package-database/2.2/sample-interface/Sample/Component/KYCPolicy.daml",
             """
-module Vault.Component.KYCPolicy where
+module Sample.Component.KYCPolicy where
 
 interface IKYCPolicy where
   viewtype ()
 """.trimIndent()
         )
         val user = myFixture.addFileToProject(
-            "vault-impl/daml/Vault/Impl/SimpleKYCPolicy.daml",
+            "sample-impl/daml/Sample/Impl/SimpleKYCPolicy.daml",
             """
-module Vault.Impl.SimpleKYCPolicy where
+module Sample.Impl.SimpleKYCPolicy where
 
-import Vault.Component.KYCPolicy (IKYCPolicy)
+import Sample.Component.KYCPolicy (IKYCPolicy)
 
 template SimpleKYCPolicy
   with
@@ -50,9 +50,9 @@ template SimpleKYCPolicy
 
     fun testCtrlClickInterfaceInstancePrefersSourceOverDamlPackageDatabase() {
         val source = myFixture.addFileToProject(
-            "vault-interface/daml/Vault/YieldSource.daml",
+            "sample-interface/daml/Sample/YieldSource.daml",
             """
-module Vault.YieldSource where
+module Sample.YieldSource where
 
 data VYieldSource = VYieldSource with
     operator : Party
@@ -62,15 +62,15 @@ interface IYieldSource where
 """.trimIndent()
         )
         myFixture.addFileToProject(
-            "vault-impl/.daml/package-database/2.2/vault-interface-0.1.0-hash/Vault/YieldSource.daml",
+            "sample-impl/.daml/package-database/2.2/sample-interface-0.1.0-hash/Sample/YieldSource.daml",
             source.text
         )
         val user = myFixture.addFileToProject(
-            "vault-impl/daml/Vault/Impl/Strategy.daml",
+            "sample-impl/daml/Sample/Impl/Strategy.daml",
             """
-module Vault.Impl.Strategy where
+module Sample.Impl.Strategy where
 
-import Vault.YieldSource
+import Sample.YieldSource
 
 template Strategy
   with
@@ -99,9 +99,9 @@ template Strategy
 
     fun testCtrlClickTypeApplicationPrefersExplicitImportedSourceSymbol() {
         val source = myFixture.addFileToProject(
-            "vault-interface/daml/Vault/Strategy/Mandate.daml",
+            "sample-interface/daml/Sample/Strategy/Mandate.daml",
             """
-module Vault.Strategy.Mandate where
+module Sample.Strategy.Mandate where
 
 data VMandate = VMandate with
     operator : Party
@@ -111,15 +111,15 @@ interface IMandate where
 """.trimIndent()
         )
         myFixture.addFileToProject(
-            "vault-test/.daml/package-database/2.2/vault-interface-0.1.0-hash/Vault/Strategy/Mandate.daml",
+            "sample-test/.daml/package-database/2.2/sample-interface-0.1.0-hash/Sample/Strategy/Mandate.daml",
             source.text
         )
         val user = myFixture.addFileToProject(
-            "vault-test/daml/Tests/VaultTest.daml",
+            "sample-test/daml/Tests/SampleTest.daml",
             """
-module Tests.VaultTest where
+module Tests.SampleTest where
 
-import Vault.Strategy.Mandate (IMandate)
+import Sample.Strategy.Mandate (IMandate)
 
 test manRaw =
   mandateCid = toInterfaceContractId @IMandate manRaw
@@ -143,11 +143,11 @@ test manRaw =
 
     fun testQualifiedSourceSymbolResolutionIgnoresDamlPackageDatabaseCopies() {
         val source = myFixture.addFileToProject(
-            "vault-interface/daml/Vault/Vault.daml",
+            "sample-interface/daml/Sample/Sample.daml",
             """
-module Vault.Vault where
+module Sample.Sample where
 
-template Vault
+template Sample
   with
     operator : Party
   where
@@ -159,18 +159,18 @@ template Vault
 """.trimIndent()
         )
         myFixture.addFileToProject(
-            "vault-test/.daml/package-database/2.2/vault-interface/Vault/Vault.daml",
+            "sample-test/.daml/package-database/2.2/sample-interface/Sample/Sample.daml",
             source.text
         )
         val test = myFixture.addFileToProject(
-            "vault-test/daml/Tests/VaultTest.daml",
+            "sample-test/daml/Tests/SampleTest.daml",
             """
-module Tests.VaultTest where
+module Tests.SampleTest where
 
-import qualified Vault.Vault as V
+import qualified Sample.Sample as V
 
 testRoute = script do
-  submit operator ${'$'} exerciseCmd vault0 V.RouteDeposit
+  submit operator ${'$'} exerciseCmd sample0 V.RouteDeposit
 """.trimIndent()
         )
 
@@ -183,9 +183,9 @@ testRoute = script do
 
     fun testGeneratedDamlModuleIsNotResolvedWhenSourceIsMissing() {
         myFixture.addFileToProject(
-            "vault-test/.daml/package-database/2.2/vault-interface/Vault/Component/KYCPolicy.daml",
+            "sample-test/.daml/package-database/2.2/sample-interface/Sample/Component/KYCPolicy.daml",
             """
-module Vault.Component.KYCPolicy where
+module Sample.Component.KYCPolicy where
 
 interface IKYCPolicy where
   viewtype ()
@@ -196,7 +196,7 @@ interface IKYCPolicy where
             """
 module User where
 
-import Vault.Component.KYCPolicy (IKYCPolicy)
+import Sample.Component.KYCPolicy (IKYCPolicy)
 
 value : Optional IKYCPolicy
 value = None
@@ -210,20 +210,20 @@ value = None
 
     fun testOpenImportDoesNotResolveUnknownIdentifierToImportedModule() {
         myFixture.addFileToProject(
-            "src/Vault/YieldSource.daml",
+            "src/Sample/YieldSource.daml",
             """
-module Vault.YieldSource where
+module Sample.YieldSource where
 
 interface IYieldSource where
   viewtype ()
 """.trimIndent()
         )
         val user = myFixture.addFileToProject(
-            "src/Vault/Impl/Strategy.daml",
+            "src/Sample/Impl/Strategy.daml",
             """
-module Vault.Impl.Strategy where
+module Sample.Impl.Strategy where
 
-import Vault.YieldSource
+import Sample.YieldSource
 
 template Strategy
   with
@@ -245,18 +245,18 @@ template Strategy
 
     fun testUnimportedWorkspaceSymbolDoesNotHijackUnqualifiedReference() {
         myFixture.addFileToProject(
-            "vault-interface/daml/Vault/YieldSource.daml",
+            "sample-interface/daml/Sample/YieldSource.daml",
             """
-module Vault.YieldSource where
+module Sample.YieldSource where
 
 interface IYieldSource where
   viewtype ()
 """.trimIndent()
         )
         val user = myFixture.addFileToProject(
-            "vault-impl/daml/Vault/Impl/Strategy.daml",
+            "sample-impl/daml/Sample/Impl/Strategy.daml",
             """
-module Vault.Impl.Strategy where
+module Sample.Impl.Strategy where
 
 template Strategy
   with
@@ -277,25 +277,25 @@ template Strategy
         val file = myFixture.configureByText(
             DamlFileType,
             """
-module Vault.IYieldSource where
+module Sample.IYieldSource where
 
-import Vault.Holding (Holding)
+import Sample.Holding (Holding)
 
 interface IYieldSource where
   viewtype ()
 
   choice Allocate : ContractId IYieldSource
     with
-      vault : Party
+      sample : Party
       funds : ContractId Holding
-    controller vault
+    controller sample
     do pure this
 """.trimIndent()
         )
         myFixture.openFileInEditor(file.virtualFile)
 
-        val usageOffset = file.text.indexOf("vault", file.text.indexOf("controller"))
-        val declarationOffset = file.text.indexOf("vault : Party")
+        val usageOffset = file.text.indexOf("sample", file.text.indexOf("controller"))
+        val declarationOffset = file.text.indexOf("sample : Party")
         val usage = file.findElementAt(usageOffset)!!
         val expected = file.findElementAt(declarationOffset)!!
         val symbol = DamlModuleNames.symbolAt(file.text, usageOffset)!!
@@ -313,7 +313,7 @@ interface IYieldSource where
             """
 module User where
 
-template Vault
+template Sample
   with
     owner : Party
   where
@@ -331,9 +331,9 @@ helper = owner
 
     fun testGotoDeclarationIgnoresStringsAndComments() {
         myFixture.addFileToProject(
-            "vault-interface/daml/Vault/Component/KYCPolicy.daml",
+            "sample-interface/daml/Sample/Component/KYCPolicy.daml",
             """
-module Vault.Component.KYCPolicy where
+module Sample.Component.KYCPolicy where
 
 interface IKYCPolicy where
   viewtype ()
@@ -344,7 +344,7 @@ interface IKYCPolicy where
             """
 module User where
 
-import Vault.Component.KYCPolicy (IKYCPolicy)
+import Sample.Component.KYCPolicy (IKYCPolicy)
 
 debugText = "IKYCPolicy"
 -- IKYCPolicy

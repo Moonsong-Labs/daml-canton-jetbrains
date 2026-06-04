@@ -37,9 +37,9 @@ class DamlChoiceReferenceContributorTest : BasePlatformTestCase() {
 
     fun testFindUsagesIncludesCrossFileInterfaceChoiceExercise() {
         val kycPolicy = myFixture.addFileToProject(
-            "vault-interface/daml/Vault/Component/KYCPolicy.daml",
+            "sample-interface/daml/Sample/Component/KYCPolicy.daml",
             """
-module Vault.Component.KYCPolicy where
+module Sample.Component.KYCPolicy where
 
 interface IKYCPolicy where
   viewtype ()
@@ -51,24 +51,24 @@ interface IKYCPolicy where
     do pure ()
 """.trimIndent()
         )
-        val vault = myFixture.addFileToProject(
-            "vault-interface/daml/Vault/Vault.daml",
+        val sample = myFixture.addFileToProject(
+            "sample-interface/daml/Sample/Sample.daml",
             """
-module Vault.Vault where
+module Sample.Sample where
 
-import Vault.Component.KYCPolicy
+import Sample.Component.KYCPolicy
 
-template VaultConfig
+template SampleConfig
   with
     operator : Party
     kycPolicyCid : ContractId IKYCPolicy
   where
     signatory operator
 
-template Vault
+template Sample
   with
     operator : Party
-    configCid : ContractId VaultConfig
+    configCid : ContractId SampleConfig
   where
     signatory operator
 
@@ -83,18 +83,18 @@ template Vault
         )
 
         val declaration = kycPolicy.findElementAt(kycPolicy.text.indexOf("CheckEligible :"))!!
-        val usageOffset = vault.text.indexOf("CheckEligible", vault.text.indexOf("exercise cfg.kycPolicyCid"))
+        val usageOffset = sample.text.indexOf("CheckEligible", sample.text.indexOf("exercise cfg.kycPolicyCid"))
 
         val references = ReferencesSearch.search(declaration).findAll()
 
-        assertTrue(references.any { it.element.containingFile == vault && it.element.textRange.startOffset == usageOffset })
+        assertTrue(references.any { it.element.containingFile == sample && it.element.textRange.startOffset == usageOffset })
     }
 
     fun testFindUsagesFromInterfaceChoiceHeadingFindsExerciseCalls() {
         val kycPolicy = myFixture.addFileToProject(
-            "vault-interface/daml/Vault/Component/KYCPolicy.daml",
+            "sample-interface/daml/Sample/Component/KYCPolicy.daml",
             """
-module Vault.Component.KYCPolicy where
+module Sample.Component.KYCPolicy where
 
 interface IKYCPolicy where
   viewtype ()
@@ -106,24 +106,24 @@ interface IKYCPolicy where
     do pure ()
 """.trimIndent()
         )
-        val vault = myFixture.addFileToProject(
-            "vault-interface/daml/Vault/Vault.daml",
+        val sample = myFixture.addFileToProject(
+            "sample-interface/daml/Sample/Sample.daml",
             """
-module Vault.Vault where
+module Sample.Sample where
 
-import Vault.Component.KYCPolicy
+import Sample.Component.KYCPolicy
 
-template VaultConfig
+template SampleConfig
   with
     operator : Party
     kycPolicyCid : ContractId IKYCPolicy
   where
     signatory operator
 
-template Vault
+template Sample
   with
     operator : Party
-    configCid : ContractId VaultConfig
+    configCid : ContractId SampleConfig
   where
     signatory operator
 
@@ -139,14 +139,14 @@ template Vault
 
         val headingKeyword = kycPolicy.findElementAt(kycPolicy.text.indexOf("nonconsuming"))!!
         val declarationName = kycPolicy.findElementAt(kycPolicy.text.indexOf("CheckEligible :"))!!
-        val usageOffset = vault.text.indexOf("CheckEligible", vault.text.indexOf("exercise cfg.kycPolicyCid"))
+        val usageOffset = sample.text.indexOf("CheckEligible", sample.text.indexOf("exercise cfg.kycPolicyCid"))
 
         assertEquals("CheckEligible", DamlChoiceUsageTargets.fromElement(headingKeyword)?.name)
         assertTrue(DamlFindUsagesProvider().canFindUsagesFor(headingKeyword))
         assertTrue(FindManager.getInstance(project).canFindUsages(headingKeyword))
 
         val references = ReferencesSearch.search(headingKeyword).findAll()
-        assertTrue(references.any { it.element.containingFile == vault && it.element.textRange.startOffset == usageOffset })
+        assertTrue(references.any { it.element.containingFile == sample && it.element.textRange.startOffset == usageOffset })
         assertTrue(references.any { it.resolve() == declarationName })
     }
 
@@ -154,7 +154,7 @@ template Vault
         val file = myFixture.configureByText(
             DamlFileType,
             """
-module Vault.Component.KYCPolicy where
+module Sample.Component.KYCPolicy where
 
 interface IKYCPolicy where
   viewtype ()
@@ -178,12 +178,12 @@ interface IKYCPolicy where
     }
 
     fun testFindUsagesIncludesQualifiedChoiceExerciseInScript() {
-        val vault = myFixture.addFileToProject(
-            "vault-interface/daml/Vault/Vault.daml",
+        val sample = myFixture.addFileToProject(
+            "sample-interface/daml/Sample/Sample.daml",
             """
-module Vault.Vault where
+module Sample.Sample where
 
-template Vault
+template Sample
   with
     operator : Party
   where
@@ -197,22 +197,22 @@ template Vault
 """.trimIndent()
         )
         val test = myFixture.addFileToProject(
-            "vault-test/daml/Tests/VaultTest.daml",
+            "sample-test/daml/Tests/SampleTest.daml",
             """
-module Tests.VaultTest where
+module Tests.SampleTest where
 
 import Daml.Script
-import qualified Vault.Vault as V
+import qualified Sample.Sample as V
 
 testRoute : Script ()
 testRoute = script do
   operator <- allocateParty "operator"
-  vault0 <- submit operator $ createCmd V.Vault with operator
-  submit operator $ exerciseCmd vault0 V.RouteDeposit with depositor = operator
+  sample0 <- submit operator $ createCmd V.Sample with operator
+  submit operator $ exerciseCmd sample0 V.RouteDeposit with depositor = operator
 """.trimIndent()
         )
 
-        val declaration = vault.findElementAt(vault.text.indexOf("RouteDeposit :"))!!
+        val declaration = sample.findElementAt(sample.text.indexOf("RouteDeposit :"))!!
         val usageOffset = test.text.indexOf("RouteDeposit", test.text.indexOf("exerciseCmd"))
 
         val references = ReferencesSearch.search(declaration).findAll()
@@ -222,11 +222,11 @@ testRoute = script do
 
     fun testQualifiedChoiceExerciseResolvesThroughImportAlias() {
         val first = myFixture.addFileToProject(
-            "src/Vault/First.daml",
+            "src/Sample/First.daml",
             """
-module Vault.First where
+module Sample.First where
 
-template Vault
+template Sample
   with operator : Party
   where
     signatory operator
@@ -236,18 +236,18 @@ template Vault
 """.trimIndent()
         )
         val second = myFixture.addFileToProject(
-            "src/Vault/Second.daml",
-            first.text.replace("module Vault.First", "module Vault.Second")
+            "src/Sample/Second.daml",
+            first.text.replace("module Sample.First", "module Sample.Second")
         )
         val test = myFixture.addFileToProject(
-            "src/Tests/VaultTest.daml",
+            "src/Tests/SampleTest.daml",
             """
-module Tests.VaultTest where
+module Tests.SampleTest where
 
-import qualified Vault.Second as V
+import qualified Sample.Second as V
 
 testRoute = script do
-  submit operator ${'$'} exerciseCmd vault0 V.RouteDeposit
+  submit operator ${'$'} exerciseCmd sample0 V.RouteDeposit
 """.trimIndent()
         )
         val firstDeclaration = first.findElementAt(first.text.indexOf("RouteDeposit :"))!!

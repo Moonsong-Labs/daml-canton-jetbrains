@@ -15,7 +15,7 @@ class LedgerExplorerRowsTest {
         assertEquals("PublicSettlement", active.templateName)
         assertEquals("global", active.syncName)
         assertEquals(listOf("BridgePublic::party", "Operator::party"), active.parties)
-        assertEquals("private-settlement", active.packageName)
+        assertEquals("sample-settlement", active.packageName)
         assertEquals(mapOf("amount" to "42.0"), active.argumentFields)
         val activeFromHistory = rows.first { it.kind == "Active" && it.contractId == "00created" }
         assertEquals("PrivateOffer", activeFromHistory.templateName)
@@ -26,7 +26,7 @@ class LedgerExplorerRowsTest {
     fun `search matches template contract party synchronizer package and arguments`() {
         val row = LedgerExplorerRows.from(snapshot()).first { it.kind == "Active" && it.contractId == "00active" }
 
-        listOf("publicsettlement", "00active", "bridgepublic", "global", "private-settlement", "amount", "42.0")
+        listOf("publicsettlement", "00active", "bridgepublic", "global", "sample-settlement", "amount", "42.0")
             .forEach { query -> assertTrue("Expected query $query to match", LedgerExplorerRows.matches(row, query)) }
         assertFalse(LedgerExplorerRows.matches(row, "not-present"))
     }
@@ -83,7 +83,7 @@ class LedgerExplorerRowsTest {
                     contractId = "00active",
                     offset = "55",
                     synchronizerId = "global::abc",
-                    packageName = "private-settlement",
+                    packageName = "sample-settlement",
                     createdAt = "2026-05-25T12:35:56Z",
                     signatories = listOf("Operator::party"),
                     observers = listOf("BridgePublic::party"),
@@ -100,7 +100,7 @@ class LedgerExplorerRowsTest {
                     contractId = "00archived",
                     offset = "63",
                     synchronizerId = "privateSync::def",
-                    packageName = "private-settlement",
+                    packageName = "sample-settlement",
                     witnessParties = listOf("IssuerPrivate::party"),
                     rawJson = """{"contractId":"00archived"}"""
                 )
@@ -113,7 +113,7 @@ class LedgerExplorerRowsTest {
                     contractId = "00created",
                     offset = "62",
                     synchronizerId = "privateSync::def",
-                    packageName = "private-settlement",
+                    packageName = "sample-settlement",
                     witnessParties = listOf("IssuerPrivate::party"),
                     rawJson = """{"contractId":"00created"}"""
                 ),
@@ -124,7 +124,7 @@ class LedgerExplorerRowsTest {
                     contractId = "00archived",
                     offset = "63",
                     synchronizerId = "privateSync::def",
-                    packageName = "private-settlement",
+                    packageName = "sample-settlement",
                     witnessParties = listOf("IssuerPrivate::party"),
                     rawJson = """{"contractId":"00archived"}"""
                 )

@@ -167,7 +167,7 @@ class CantonSandboxPanelTest : BasePlatformTestCase() {
                 SandboxSessionState(profileId = profile.id, status = SandboxSessionStatus.RUNNING)
             )
             panel.privateMethod("assignDarToParticipant", String::class.java, String::class.java)
-                .invoke(panel, "/tmp/private-settlement.dar", profile.participants.first().id)
+                .invoke(panel, "/tmp/sample-settlement.dar", profile.participants.first().id)
 
             val updated = panel.privateField<SandboxProfile>("currentProfile")
             assertTrue(updated.darAssignments.any { profile.participants.first().id in it.participantIds })
@@ -181,7 +181,7 @@ class CantonSandboxPanelTest : BasePlatformTestCase() {
 
         try {
             val profile = panel.privateField<SandboxProfile>("currentProfile")
-            profile.darAssignments.add(DarAssignment("/tmp/private-settlement.dar", mutableListOf(profile.participants.first().id)))
+            profile.darAssignments.add(DarAssignment("/tmp/sample-settlement.dar", mutableListOf(profile.participants.first().id)))
 
             panel.privateMethod("clearDarsFromParticipant", String::class.java)
                 .invoke(panel, profile.participants.first().id)

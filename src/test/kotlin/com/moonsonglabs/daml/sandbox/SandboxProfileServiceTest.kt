@@ -1,6 +1,7 @@
 package com.moonsonglabs.daml.sandbox
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.moonsonglabs.daml.sdk.DamlSdkVersions
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -9,7 +10,7 @@ class SandboxProfileServiceTest : BasePlatformTestCase() {
         val root = Path.of(project.basePath!!)
         resetDetectedProfiles(root)
         Files.createDirectories(root)
-        Files.writeString(root.resolve("daml.yaml"), "sdk-version: 3.4.11\nname: detected-sandbox\n")
+        Files.writeString(root.resolve("daml.yaml"), "sdk-version: ${DamlSdkVersions.DEFAULT}\nname: detected-sandbox\n")
         Files.writeString(root.resolve("managed-sandbox-profile.json"), detectedProfileJson(root))
 
         val service = SandboxProfileService.getInstance(project)
@@ -21,11 +22,11 @@ class SandboxProfileServiceTest : BasePlatformTestCase() {
 
         val selected = service.selectedProfile()
 
-        assertEquals("private-settlement", selected.id)
-        assertEquals("Private Settlement Bridge", selected.name)
+        assertEquals("sample-settlement", selected.id)
+        assertEquals("Sample Settlement Bridge", selected.name)
         assertEquals(".", selected.workspacePath)
-        assertEquals(".canton-sandboxes/private-settlement", selected.generatedPath)
-        assertEquals(".daml/dist/private-settlement-bridge-0.1.0.dar", selected.darAssignments.single().darPath)
+        assertEquals(".canton-sandboxes/sample-settlement", selected.generatedPath)
+        assertEquals(".daml/dist/sample-settlement-bridge-0.1.0.dar", selected.darAssignments.single().darPath)
         assertEquals(3, selected.participants.size)
         assertEquals(2, selected.synchronizers.size)
         assertTrue(service.profiles().any { it.id == "persisted-default" })
@@ -34,17 +35,17 @@ class SandboxProfileServiceTest : BasePlatformTestCase() {
     fun testDetectedRelativeWorkspacePathIsAnchoredToDetectedWorkspace() {
         val root = Path.of(project.basePath!!)
         resetDetectedProfiles(root)
-        val workspace = root.resolve("vaultkit")
+        val workspace = root.resolve("sample-workspace")
         Files.createDirectories(workspace.resolve(".daml/dist"))
-        Files.writeString(workspace.resolve("daml.yaml"), "sdk-version: 3.4.11\nname: detected-sandbox\n")
-        Files.writeString(workspace.resolve(".daml/dist/private-settlement-bridge-0.1.0.dar"), "dar")
+        Files.writeString(workspace.resolve("daml.yaml"), "sdk-version: ${DamlSdkVersions.DEFAULT}\nname: detected-sandbox\n")
+        Files.writeString(workspace.resolve(".daml/dist/sample-settlement-bridge-0.1.0.dar"), "dar")
         Files.writeString(
             workspace.resolve("managed-sandbox-profile.json"),
             detectedProfileJson(workspace)
                 .replace(""""workspacePath": "",""", """"workspacePath": ".",""")
                 .replace(
-                    workspace.resolve(".daml/dist/private-settlement-bridge-0.1.0.dar").toString(),
-                    ".daml/dist/private-settlement-bridge-0.1.0.dar"
+                    workspace.resolve(".daml/dist/sample-settlement-bridge-0.1.0.dar").toString(),
+                    ".daml/dist/sample-settlement-bridge-0.1.0.dar"
                 )
         )
 
@@ -52,9 +53,9 @@ class SandboxProfileServiceTest : BasePlatformTestCase() {
         service.loadState(SandboxProfileService.State())
         val selected = service.selectedProfile()
 
-        assertEquals("vaultkit", selected.workspacePath)
-        assertEquals(".canton-sandboxes/private-settlement", selected.generatedPath)
-        assertEquals(".daml/dist/private-settlement-bridge-0.1.0.dar", selected.darAssignments.single().darPath)
+        assertEquals("sample-workspace", selected.workspacePath)
+        assertEquals(".canton-sandboxes/sample-settlement", selected.generatedPath)
+        assertEquals(".daml/dist/sample-settlement-bridge-0.1.0.dar", selected.darAssignments.single().darPath)
         assertTrue(Files.isRegularFile(root.resolve(selected.workspacePath).resolve(selected.darAssignments.single().darPath)))
     }
 
@@ -62,7 +63,7 @@ class SandboxProfileServiceTest : BasePlatformTestCase() {
         val root = Path.of(project.basePath!!)
         resetDetectedProfiles(root)
         Files.createDirectories(root)
-        Files.writeString(root.resolve("daml.yaml"), "sdk-version: 3.4.11\nname: detected-sandbox\n")
+        Files.writeString(root.resolve("daml.yaml"), "sdk-version: ${DamlSdkVersions.DEFAULT}\nname: detected-sandbox\n")
         Files.writeString(root.resolve("managed-sandbox-profile.json"), detectedProfileJson(root))
 
         val service = SandboxProfileService.getInstance(project)
@@ -77,9 +78,9 @@ class SandboxProfileServiceTest : BasePlatformTestCase() {
     fun testRefreshDetectedProfileReloadsChangedJson() {
         val root = Path.of(project.basePath!!)
         resetDetectedProfiles(root)
-        val generated = root.resolve(".canton-sandboxes/private-settlement")
+        val generated = root.resolve(".canton-sandboxes/sample-settlement")
         Files.createDirectories(generated)
-        Files.writeString(root.resolve("daml.yaml"), "sdk-version: 3.4.11\nname: detected-sandbox\n")
+        Files.writeString(root.resolve("daml.yaml"), "sdk-version: ${DamlSdkVersions.DEFAULT}\nname: detected-sandbox\n")
         val profileJson = generated.resolve("profile.json")
         Files.writeString(profileJson, detectedProfileJson(root))
 
@@ -105,8 +106,8 @@ class SandboxProfileServiceTest : BasePlatformTestCase() {
     private fun detectedProfileJson(root: Path): String =
         """
         {
-          "id": "private-settlement",
-          "name": "Private Settlement Bridge",
+          "id": "sample-settlement",
+          "name": "Sample Settlement Bridge",
           "workspacePath": "",
           "cantonVersion": "3.4.x",
           "portBase": 7400,
@@ -137,7 +138,7 @@ class SandboxProfileServiceTest : BasePlatformTestCase() {
           ],
           "darAssignments": [
             {
-              "darPath": "${root.resolve(".daml/dist/private-settlement-bridge-0.1.0.dar")}",
+              "darPath": "${root.resolve(".daml/dist/sample-settlement-bridge-0.1.0.dar")}",
               "participantIds": ["issuer", "investor", "bridge"]
             }
           ],
@@ -154,7 +155,7 @@ class SandboxProfileServiceTest : BasePlatformTestCase() {
     private fun resetDetectedProfiles(root: Path) {
         root.resolve("managed-sandbox-profile.json").toFile().delete()
         root.resolve(".canton-sandboxes").toFile().deleteRecursively()
-        root.resolve("vaultkit").toFile().deleteRecursively()
+        root.resolve("sample-workspace").toFile().deleteRecursively()
         root.resolve("daml.yaml").toFile().delete()
         root.resolve("multi-package.yaml").toFile().delete()
     }

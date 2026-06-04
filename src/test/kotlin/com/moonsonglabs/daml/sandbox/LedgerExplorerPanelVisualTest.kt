@@ -64,14 +64,15 @@ class LedgerExplorerPanelVisualTest : BasePlatformTestCase() {
     fun `test renders live private settlement explorer screenshots`() {
         if (System.getenv("RUN_LIVE_EXPLORER_VISUAL") != "true") return
 
-        val exampleRoot = Path.of(System.getenv("PRIVATE_SETTLEMENT_ROOT") ?: "../private-settlement")
+        val sampleRoot = System.getenv("LEDGER_EXPLORER_SAMPLE_ROOT") ?: return
+        val exampleRoot = Path.of(sampleRoot)
             .toAbsolutePath()
             .normalize()
         val profile = explorerProfile().apply {
-            id = "private-settlement"
-            name = "Private Settlement Bridge"
+            id = "sample-settlement"
+            name = "Sample Settlement Bridge"
             workspacePath = exampleRoot.toString()
-            generatedPath = exampleRoot.resolve(".canton-sandboxes/private-settlement").toString()
+            generatedPath = exampleRoot.resolve(".canton-sandboxes/sample-settlement").toString()
             participants[0].apply {
                 id = "issuer"
                 ledgerPort = 7411
@@ -148,7 +149,7 @@ class LedgerExplorerPanelVisualTest : BasePlatformTestCase() {
 
     private fun explorerProfile(): SandboxProfile =
         SandboxDefaults.newProfile(null).apply {
-            name = "Private Settlement Bridge"
+            name = "Sample Settlement Bridge"
             portBase = 7400
             participants.clear()
             participants.add(SandboxDefaults.participant(1, portBase).apply { name = "issuer" })
@@ -193,7 +194,7 @@ class LedgerExplorerPanelVisualTest : BasePlatformTestCase() {
             contractId = "00${template.lowercase()}$offset".padEnd(34, 'a'),
             offset = offset.toString(),
             synchronizerId = "$sync::1220abc",
-            packageName = "private-settlement-bridge",
+            packageName = "sample-settlement-bridge",
             createdAt = "2026-05-27T10:40:00Z",
             signatories = listOf("$party::1220party"),
             observers = emptyList(),
@@ -222,7 +223,7 @@ class LedgerExplorerPanelVisualTest : BasePlatformTestCase() {
             contractId = "00${template.lowercase()}$offset".padEnd(34, 'a'),
             offset = offset.toString(),
             synchronizerId = "$sync::1220abc",
-            packageName = "private-settlement-bridge",
+            packageName = "sample-settlement-bridge",
             witnessParties = listOf("$party::1220party"),
             createArgument = mapOf(
                 "amount" to "125.5000000000",

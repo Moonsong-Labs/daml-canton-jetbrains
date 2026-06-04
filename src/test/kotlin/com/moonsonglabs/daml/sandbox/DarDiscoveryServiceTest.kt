@@ -10,12 +10,12 @@ class DarDiscoveryServiceTest : BasePlatformTestCase() {
         Files.createDirectories(root.resolve(".daml/dist"))
         Files.createDirectories(root.resolve(".daml/package-database/pkg"))
         Files.createDirectories(root.resolve(".canton-sandboxes/generated/dars"))
-        Files.createDirectories(root.resolve("sdk/vault-test/.daml/dist"))
+        Files.createDirectories(root.resolve("sdk/sample-test/.daml/dist"))
         Files.createDirectories(root.resolve("target"))
         Files.writeString(root.resolve(".daml/dist/main.dar"), "fake")
         Files.writeString(root.resolve(".daml/package-database/pkg/noise.dar"), "fake")
         Files.writeString(root.resolve(".canton-sandboxes/generated/dars/generated.dar"), "fake")
-        Files.writeString(root.resolve("sdk/vault-test/.daml/dist/test.dar"), "fake")
+        Files.writeString(root.resolve("sdk/sample-test/.daml/dist/test.dar"), "fake")
         Files.writeString(root.resolve("target/targeted.dar"), "fake")
 
         val profile = SandboxDefaults.newProfile(root).apply { workspacePath = "." }
@@ -32,7 +32,7 @@ class DarDiscoveryServiceTest : BasePlatformTestCase() {
         val metadata = DarMetadataInspector(project).parse(
             """
             {
-              "packageName": "private-settlement-bridge",
+              "packageName": "sample-settlement-bridge",
               "packageVersion": "0.1.0",
               "templates": ["PrivateOffer", "PublicSettlement"],
               "modules": ["PrivateSettlement"]
@@ -40,7 +40,7 @@ class DarDiscoveryServiceTest : BasePlatformTestCase() {
             """.trimIndent()
         )
 
-        assertEquals("private-settlement-bridge", metadata?.packageName)
+        assertEquals("sample-settlement-bridge", metadata?.packageName)
         assertEquals("0.1.0", metadata?.packageVersion)
         assertEquals(2, metadata?.templateCount)
         assertEquals(1, metadata?.moduleCount)

@@ -44,16 +44,16 @@ template Deposit
     fun `classifies native type after multiline template with clause`() {
         val tokens = lex(
             """
-template VaultFactory
+template SampleFactory
   with
-    vaultIssuer : Party
+    sampleIssuer : Party
   where
-    signatory vaultIssuer
+    signatory sampleIssuer
 """.trimIndent()
         )
 
-        assertHas(tokens, "VaultFactory", DamlTokenTypes.TYPE_NAME)
-        assertHas(tokens, "vaultIssuer", DamlTokenTypes.IDENTIFIER)
+        assertHas(tokens, "SampleFactory", DamlTokenTypes.TYPE_NAME)
+        assertHas(tokens, "sampleIssuer", DamlTokenTypes.IDENTIFIER)
         assertHas(tokens, "Party", DamlTokenTypes.PRELUDE_TYPE)
     }
 

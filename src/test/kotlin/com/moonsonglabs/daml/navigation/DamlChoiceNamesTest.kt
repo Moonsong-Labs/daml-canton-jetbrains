@@ -27,7 +27,7 @@ class DamlChoiceNamesTest {
 
     @Test
     fun `detects qualified choices in exercise calls`() {
-        val text = "vault1 <- submit operator $ exerciseCmd vault0 V.RouteDeposit with depositor"
+        val text = "sample1 <- submit operator $ exerciseCmd sample0 V.RouteDeposit with depositor"
         val qualifier = DamlChoiceNames.useAt(text, text.indexOf("V.RouteDeposit"))
         val routeDeposit = DamlChoiceNames.useAt(text, text.indexOf("RouteDeposit"))
 

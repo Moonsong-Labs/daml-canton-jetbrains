@@ -12,7 +12,7 @@ class DamlHighlightingClassifierTest {
 
     @Test
     fun `classifies module imports and explicit import symbols`() {
-        assertRole("Vault", sample.indexOf("Vault.Deposit.Test"), Role.MODULE_NAME)
+        assertRole("Sample", sample.indexOf("Sample.Deposit.Test"), Role.MODULE_NAME)
         assertRole("Daml", sample.indexOf("Daml.Script"), Role.MODULE_NAME)
         assertRole("IProcessor", sample.indexOf("IProcessor)"), Role.IMPORT_SYMBOL)
     }
@@ -53,7 +53,7 @@ template T
     @Test
     fun `classifies abstract interface methods this references and party arguments`() {
         val text = """
-module Vault.Component.KYCPolicy where
+module Sample.Component.KYCPolicy where
 
 data VKYCPolicy = VKYCPolicy with
     operator : Party
@@ -169,18 +169,18 @@ test = script do
     @Test
     fun `classifies custom and native type references in signatures`() {
         val text = """
-template VaultConfig
+template SampleConfig
   with
     operator : Party
     public : Party
-    vaultId : Text
+    sampleId : Text
     depositConfigCid : ContractId DC.Config
     processor : IProcessor
   where
     signatory operator
 """.trimIndent()
 
-        assertEquals(Role.DECLARATION_NAME, DamlHighlightingClassifier.roleAt(text, text.indexOf("VaultConfig"), "VaultConfig"))
+        assertEquals(Role.DECLARATION_NAME, DamlHighlightingClassifier.roleAt(text, text.indexOf("SampleConfig"), "SampleConfig"))
         assertEquals(Role.PRELUDE_TYPE_REFERENCE, DamlHighlightingClassifier.roleAt(text, text.indexOf("Party"), "Party"))
         assertEquals(Role.PRELUDE_TYPE_REFERENCE, DamlHighlightingClassifier.roleAt(text, text.indexOf("Text"), "Text"))
         assertEquals(Role.PRELUDE_TYPE_REFERENCE, DamlHighlightingClassifier.roleAt(text, text.indexOf("ContractId"), "ContractId"))

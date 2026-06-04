@@ -12,12 +12,12 @@ class DarAssignmentDialogTest : BasePlatformTestCase() {
         val root = Path.of(project.basePath!!).toAbsolutePath().normalize()
         val dist = root.resolve(".daml/dist")
         Files.createDirectories(dist)
-        Files.writeString(dist.resolve("vault-interface-0.1.0.dar"), "fake")
-        Files.writeString(dist.resolve("vault-impl-0.1.0.dar"), "fake")
+        Files.writeString(dist.resolve("sample-interface-0.1.0.dar"), "fake")
+        Files.writeString(dist.resolve("sample-impl-0.1.0.dar"), "fake")
 
         val profile = SandboxDefaults.newProfile(root).apply {
             workspacePath = "."
-            darAssignments.add(DarAssignment(".daml/dist/vault-interface-0.1.0.dar", mutableListOf(participants.first().id)))
+            darAssignments.add(DarAssignment(".daml/dist/sample-interface-0.1.0.dar", mutableListOf(participants.first().id)))
         }
         val dialog = DarAssignmentDialog(project, profile)
 
@@ -29,8 +29,8 @@ class DarAssignmentDialogTest : BasePlatformTestCase() {
 
             val table = dialog.privateField<JBTable>("table")
             val darNames = (0 until table.rowCount).map { row -> table.getValueAt(row, 0).toString() }.toSet()
-            assertTrue("Assigned DAR should be shown.", "vault-interface-0.1.0.dar" in darNames)
-            assertTrue("Sibling DARs in the same derived source folder should be shown.", "vault-impl-0.1.0.dar" in darNames)
+            assertTrue("Assigned DAR should be shown.", "sample-interface-0.1.0.dar" in darNames)
+            assertTrue("Sibling DARs in the same derived source folder should be shown.", "sample-impl-0.1.0.dar" in darNames)
         } finally {
             dialog.close(DialogWrapper.CANCEL_EXIT_CODE)
         }

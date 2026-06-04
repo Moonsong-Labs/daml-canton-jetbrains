@@ -1,6 +1,7 @@
 package com.moonsonglabs.daml.sandbox
 
 import com.google.gson.GsonBuilder
+import com.moonsonglabs.daml.sdk.DamlSdkVersions
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -77,7 +78,7 @@ class SandboxGenerator(private val projectRoot: Path? = null) {
         appendLine("""CONF="canton.conf"""")
         appendLine("""BOOT="bootstrap.canton"""")
         appendLine("""LOG_DIR="log"""")
-        appendLine("""SDK_VERSION="${'$'}{CANTON_SDK_VERSION:-3.4.11}"""")
+        appendLine("""SDK_VERSION="${'$'}{CANTON_SDK_VERSION:-${DamlSdkVersions.DEFAULT}}"""")
         appendLine("""CANTON_JAR_DEFAULT="${'$'}HOME/.daml/sdk/${'$'}SDK_VERSION/canton/canton.jar"""")
         appendLine("""CANTON_DPM_JAR_DEFAULT="${'$'}HOME/.dpm/cache/components/canton-enterprise/${'$'}SDK_VERSION/lib/canton-enterprise-${'$'}SDK_VERSION.jar"""")
         appendLine("""CANTON_JAR="${'$'}{CANTON_JAR:-}"""")

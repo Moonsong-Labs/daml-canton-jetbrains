@@ -74,7 +74,7 @@ class TopologyGraphPanelVisualTest {
             bindings.add(ParticipantSyncBinding(participants[1].id, synchronizers[0].id, true))
             bindings.add(ParticipantSyncBinding(participants[0].id, synchronizers[1].id, true))
             bindings.add(ParticipantSyncBinding(participants[1].id, synchronizers[1].id, false))
-            darAssignments.add(DarAssignment("/workspace/.daml/dist/private-settlement-bridge-0.1.0.dar", mutableListOf(participants[0].id, participants[1].id)))
+            darAssignments.add(DarAssignment("/workspace/.daml/dist/sample-settlement-bridge-0.1.0.dar", mutableListOf(participants[0].id, participants[1].id)))
         }
 
         val panel = TopologyComponentPalettePanel()

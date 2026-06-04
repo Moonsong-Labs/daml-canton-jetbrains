@@ -7,9 +7,9 @@ assert.strictEqual(webview.normalizeView('console'), 'console');
 assert.strictEqual(webview.normalizeView('unexpected'), 'overview');
 
 const template = webview.parseTemplateTitle(
-  'SimpleVault.Impl.SimplePricer:SimplePricer@334001223b63671e1795e08c5e0c8b9e'
+  'SimpleSample.Impl.SimplePricer:SimplePricer@334001223b63671e1795e08c5e0c8b9e'
 );
-assert.strictEqual(template.template, 'SimpleVault.Impl.SimplePricer:SimplePricer');
+assert.strictEqual(template.template, 'SimpleSample.Impl.SimplePricer:SimplePricer');
 assert.strictEqual(template.shortName, 'SimplePricer');
 assert.strictEqual(template.packageId, '334001223b63671e1795e08c5e0c8b9e');
 
@@ -56,7 +56,7 @@ assert.strictEqual(webview.classifyDisclosureState([], false).kind, 'hidden');
 assert.deepStrictEqual(webview.partiesForContract([
   { party: 'operator-9b3970be', visible: true, detail: 'Signatory' },
   { party: 'public-40b5f04b', visible: true, detail: 'Divulged' },
-  { party: 'vaultIssuer-d4d95138', visible: false, detail: '' }
+  { party: 'sampleIssuer-d4d95138', visible: false, detail: '' }
 ]), [
   { name: 'operator-9b3970be', roles: ['signatory'] },
   { name: 'public-40b5f04b', roles: ['divulged'] }
@@ -137,7 +137,7 @@ const createFromContract = webview.transactionEventFromContract({
   id: '#1:1',
   archived: false,
   templateShort: 'KYCAttestation',
-  template: 'Vault.Component.IKYCPolicy:KYCAttestation',
+  template: 'Sample.Component.IKYCPolicy:KYCAttestation',
   parties: [
     { name: 'deposit-compliance-40bcf2e7', roles: ['signatory'] },
     { name: 'deposit-lender-49310e6c', roles: ['observer'] }
@@ -156,13 +156,13 @@ assert.deepStrictEqual(webview.disclosurePartiesForContracts([
     disclosures: [{ party: 'operator-9b3970be', visible: true, detail: 'Signatory' }]
   },
   {
-    fields: [{ name: 'vaultIssuer', value: "'vaultIssuer-d4d95138'" }],
+    fields: [{ name: 'sampleIssuer', value: "'sampleIssuer-d4d95138'" }],
     disclosures: [
       { party: 'valuationAgent-4f1df03a', visible: true, detail: 'Witness' },
-      { party: 'vaultIssuer-d4d95138', visible: false, detail: '' }
+      { party: 'sampleIssuer-d4d95138', visible: false, detail: '' }
     ]
   }
-]), ['operator-9b3970be', 'valuationAgent-4f1df03a', 'vaultIssuer-d4d95138']);
+]), ['operator-9b3970be', 'sampleIssuer-d4d95138', 'valuationAgent-4f1df03a']);
 
 function fakeClassList(classes) {
   return { contains: name => classes.includes(name) };
@@ -184,7 +184,7 @@ function fakeRow(cells, classes) {
 }
 
 const multiRowContracts = webview.contractsFromHeadingAndTable(
-  { textContent: 'Vault.Holding:Holding@pkg', outerHTML: '<h1>Vault.Holding:Holding@pkg</h1>', querySelector: () => null },
+  { textContent: 'Sample.Holding:Holding@pkg', outerHTML: '<h1>Sample.Holding:Holding@pkg</h1>', querySelector: () => null },
   {
     classList: fakeClassList([]),
     outerHTML: '<table></table>',
@@ -241,38 +241,38 @@ assert.strictEqual(mergedTransactions[0].events.length, 2);
 assert.strictEqual(webview.flattenEvents([{ kind: 'Create', children: [{ kind: 'Exercise' }] }]).length, 2);
 const damlTxs = webview.damlTransactionsFromText(`
 Transactions:
-  TX 6 1970-01-01T00:00:00Z (Tests.VaultTest:40:15)
+  TX 6 1970-01-01T00:00:00Z (Tests.SampleTest:40:15)
   #6:0
-  └─> 'operator-9b3970be' and 'vaultIssuer-d4d95138' exercises CreateVault on #5:0 (Vault.Factory:VaultFactory@pkg)
+  └─> 'operator-9b3970be' and 'sampleIssuer-d4d95138' exercises CreateSample on #5:0 (Sample.Factory:SampleFactory@pkg)
       with
         operator = 'operator-9b3970be'; public = 'public-1df42503'
       children:
       #6:1
-      └─> 'operator-9b3970be' fetches #4:0 (Vault.Vault:VaultConfig@pkg)
+      └─> 'operator-9b3970be' fetches #4:0 (Sample.Sample:SampleConfig@pkg)
 
       #6:2
-      └─> 'operator-9b3970be' and 'vaultIssuer-d4d95138' create Vault.Vault:Vault@pkg
+      └─> 'operator-9b3970be' and 'sampleIssuer-d4d95138' create Sample.Sample:Sample@pkg
           with
-            vaultIssuer = 'vaultIssuer-d4d95138'; operator = 'operator-9b3970be'
+            sampleIssuer = 'sampleIssuer-d4d95138'; operator = 'operator-9b3970be'
 
-  TX 8 1970-01-01T00:00:00Z (Tests.VaultTest:52:17)
+  TX 8 1970-01-01T00:00:00Z (Tests.SampleTest:52:17)
   #8:0
-  └─> 'operator-9b3970be' exercises AcceptDeposit on #7:2 (Vault.Deposit.Workflow:DepositRequest@pkg)
+  └─> 'operator-9b3970be' exercises AcceptDeposit on #7:2 (Sample.Deposit.Workflow:DepositRequest@pkg)
 `, new Map([
-  ['#5:0', { id: '#5:0', templateShort: 'VaultFactory', template: 'Vault.Factory:VaultFactory', parties: [], fields: [] }],
-  ['#4:0', { id: '#4:0', templateShort: 'VaultConfig', template: 'Vault.Vault:VaultConfig', parties: [], fields: [] }],
-  ['#6:2', { id: '#6:2', templateShort: 'Vault', template: 'Vault.Vault:Vault', parties: [], fields: [{ name: 'operator', value: "'operator-9b3970be'" }] }],
-  ['#7:2', { id: '#7:2', templateShort: 'DepositRequest', template: 'Vault.Deposit.Workflow:DepositRequest', parties: [], fields: [] }]
+  ['#5:0', { id: '#5:0', templateShort: 'SampleFactory', template: 'Sample.Factory:SampleFactory', parties: [], fields: [] }],
+  ['#4:0', { id: '#4:0', templateShort: 'SampleConfig', template: 'Sample.Sample:SampleConfig', parties: [], fields: [] }],
+  ['#6:2', { id: '#6:2', templateShort: 'Sample', template: 'Sample.Sample:Sample', parties: [], fields: [{ name: 'operator', value: "'operator-9b3970be'" }] }],
+  ['#7:2', { id: '#7:2', templateShort: 'DepositRequest', template: 'Sample.Deposit.Workflow:DepositRequest', parties: [], fields: [] }]
 ]));
 assert.strictEqual(damlTxs.length, 2);
 assert.strictEqual(damlTxs[0].id, '6');
 assert.strictEqual(damlTxs[0].events.length, 1);
 assert.strictEqual(damlTxs[0].events[0].kind, 'Exercise');
-assert.strictEqual(damlTxs[0].events[0].label, 'CreateVault');
+assert.strictEqual(damlTxs[0].events[0].label, 'CreateSample');
 assert.strictEqual(damlTxs[0].events[0].contractId, '#5:0');
 assert.deepStrictEqual(damlTxs[0].events[0].actors.map(party => party.name), [
   'operator-9b3970be',
-  'vaultIssuer-d4d95138'
+  'sampleIssuer-d4d95138'
 ]);
 assert.strictEqual(damlTxs[0].events[0].children.length, 2);
 assert.strictEqual(damlTxs[0].events[0].children[0].kind, 'Fetch');
@@ -295,7 +295,7 @@ Trace:
 ]);
 assert.strictEqual(webview.looksLikeConsoleLine('TRACE: [Test] OK (flow + privacy)'), true);
 assert.strictEqual(webview.looksLikeConsoleLine('[Test] OK (flow + privacy)'), true);
-assert.strictEqual(webview.looksLikeConsoleLine('SimpleVault.Impl.SimplePricer:SimplePricer'), false);
+assert.strictEqual(webview.looksLikeConsoleLine('SimpleSample.Impl.SimplePricer:SimplePricer'), false);
 assert.strictEqual(webview.normalizeConsoleText('TRACE: "[Test] OK (flow + privacy)"'), '[test] ok (flow + privacy)');
 assert.strictEqual(webview.mergeConsoleEntries(
   [{ text: 'TRACE: [Test] OK (flow + privacy)', severity: 'debug' }],

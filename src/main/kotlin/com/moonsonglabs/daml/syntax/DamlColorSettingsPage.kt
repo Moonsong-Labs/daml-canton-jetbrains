@@ -84,10 +84,10 @@ class DamlColorSettingsPage : ColorSettingsPage {
         private val DEMO_TEXT = """
 {-# LANGUAGE DamlSyntax #-}
 -- | Deposit workflow demo
-module <module>Vault.Deposit.Test</module> where
+module <module>Sample.Deposit.Test</module> where
 
 import <module>Daml.Script</module>
-import <module>Vault.Deposit.Processor</module> (<importSymbol>IProcessor</importSymbol>)
+import <module>Sample.Deposit.Processor</module> (<importSymbol>IProcessor</importSymbol>)
 
 data <decl>Receipt</decl> <typeParam>a</typeParam> = <decl>Receipt</decl>
   with
