@@ -35,7 +35,7 @@ jobs:
         run: ./gradlew --no-daemon --no-configuration-cache test verifyPluginProjectConfiguration verifyPluginStructure buildPlugin
 
       - name: Upload plugin ZIP artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: daml-canton-jetbrains-plugin
           path: build/distributions/*.zip
