@@ -32,6 +32,7 @@ dependencies {
         // edition (e.g. JSON plugin id changes), comment the offending line and remove the
         // matching <depends> from plugin.xml.
         bundledPlugin("com.intellij.modules.json")
+        bundledPlugin("com.intellij.modules.jcef")
         bundledPlugin("org.jetbrains.plugins.yaml")
         bundledPlugin("org.jetbrains.plugins.terminal")
 

@@ -50,6 +50,7 @@
 
 	    <depends>com.intellij.modules.platform</depends>
 	    <depends>com.intellij.modules.json</depends>
+	    <depends>com.intellij.modules.jcef</depends>
 	    <depends>org.jetbrains.plugins.yaml</depends>
 	    <depends>org.jetbrains.plugins.terminal</depends>
 	    <!-- Owns the platform.lsp.serverSupportProvider EP and the com.intellij.platform.lsp API.
