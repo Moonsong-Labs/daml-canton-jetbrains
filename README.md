@@ -1,15 +1,13 @@
-# DAML JetBrains Plugin
+# DAML for JetBrains
 
-A JetBrains plugin for writing, running, and debugging DAML applications and local Canton networks.
+Write, run, and inspect DAML applications and local Canton networks without leaving your JetBrains IDE.
 
 ## What it does
 
-- DAML syntax highlighting, diagnostics, completion, hover, navigation, symbols, and rename.
-- Script execution with contracts, transaction trees, disclosure, console, and raw results.
-- Run configurations for DAML build, test, script, and start commands.
-- Schema completion for `daml.yaml` and `multi-package.yaml`.
-- Canton config and script support with managed local network profiles.
-- Ledger activity explorer and participant endpoint console.
+- Edit DAML with highlighting, diagnostics, completion, navigation, symbols, and rename.
+- Run DAML builds, tests, scripts, and local Canton nodes.
+- Inspect script results, contracts, transactions, ledger activity, and participant endpoints.
+- Configure DAML projects and multi-participant Canton networks inside the IDE.
 
 ## Quick start
 
@@ -21,21 +19,20 @@ Requires GoLand 2026.1.2+, JDK 21, and `dpm` or the DAML assistant. Install Cant
    ./gradlew buildPlugin
    ```
 
-2. Open **Settings / Preferences -> Plugins -> Gear -> Install Plugin from Disk...**.
-3. Select `build/distributions/daml-canton-jetbrains-<version>.zip`.
-4. Open a DAML project, then validate or install the SDK under **Settings -> Languages & Frameworks -> DAML**.
+2. Open **Settings / Preferences -> Plugins -> Gear -> Install Plugin from Disk...** and select `build/distributions/daml-canton-jetbrains-<version>.zip`.
+3. Open a DAML project, then select its SDK under **Settings -> Languages & Frameworks -> DAML**.
 
-## Feature Tour
+## Feature tour
 
 ### Write DAML
 
-Edit `.daml` files with native highlighting and language-server features.
+Highlight, complete, navigate, and refactor `.daml` files.
 
 <img src="docs/images/daml-editor.png" alt="A DAML source file open in the JetBrains editor with native syntax highlighting and line numbers" width="900">
 
-### Inspect Script Results
+### Inspect script results
 
-Run a `Script` from the editor and inspect its contracts and transactions. Shown here: the real [`testTransferWithSplit`](https://github.com/Moonsong-Labs/canton-apps/blob/ca0ede4441af0b93c653235c2c035f5bde6a77d8/lunar-dollar/daml/Tests/Tests.daml#L34-L56) flow.
+Run a `Script` from the gutter and inspect its contracts and transaction tree. This capture uses the real [`testTransferWithSplit`](https://github.com/Moonsong-Labs/canton-apps/blob/ca0ede4441af0b93c653235c2c035f5bde6a77d8/lunar-dollar/daml/Tests/Tests.daml#L34-L56) flow.
 
 <img src="docs/images/daml-script-results.png" alt="DAML Script Results showing the nested transaction tree for a real Lunar Dollar split transfer" width="900">
 
