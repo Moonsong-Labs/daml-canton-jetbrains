@@ -16,7 +16,7 @@ These are production plugin views. Script Results uses a real Lunar Dollar scrip
 
 Work in `.daml` files with syntax highlighting, diagnostics, hover, completion, document symbols, rename, and go-to-definition. Local fallback navigation resolves DAML imports and explicitly imported symbols when the language server cannot.
 
-![A DAML source file open in the JetBrains editor with native syntax highlighting and line numbers](docs/images/daml-editor.png)
+<img src="docs/images/daml-editor.png" alt="A DAML source file open in the JetBrains editor with native syntax highlighting and line numbers" width="900">
 
 ### Run scripts and inspect transactions
 
@@ -24,19 +24,19 @@ Open a `Script` from the editor gutter, context menu, or **Tools -> Show DAML Sc
 
 This capture comes from the real [`testTransferWithSplit`](https://github.com/Moonsong-Labs/canton-apps/blob/ca0ede4441af0b93c653235c2c035f5bde6a77d8/lunar-dollar/daml/Tests/Tests.daml#L34-L56) flow: Alice transfers part of a Lunar Dollar holding to Bob through compliance validation, split, and transfer events.
 
-![DAML Script Results showing the nested transaction tree for a real Lunar Dollar split transfer](docs/images/daml-script-results.png)
+<img src="docs/images/daml-script-results.png" alt="DAML Script Results showing the nested transaction tree for a real Lunar Dollar split transfer" width="900">
 
 ### Design and run local Canton networks
 
 Create multi-participant profiles, assign DARs and parties, connect participants to sync domains, and inspect the resulting topology from the **Managed Canton Sandboxes** tool window.
 
-![A sample three-participant Canton network in the Managed Canton Sandboxes topology view](docs/images/managed-canton-network.png)
+<img src="docs/images/managed-canton-network.png" alt="A sample three-participant Canton network in the Managed Canton Sandboxes topology view" width="900">
 
 ### Explore ledger activity
 
 Inspect active and archived contracts, transaction history, parties, synchronizers, raw JSON, and the live network activity timeline for each participant.
 
-![The Canton ledger explorer showing sample contract activity, contract details, and a network timeline](docs/images/ledger-explorer.png)
+<img src="docs/images/ledger-explorer.png" alt="The Canton ledger explorer showing sample contract activity, contract details, and a network timeline" width="900">
 
 ### More included tooling
 
