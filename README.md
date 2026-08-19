@@ -1,101 +1,52 @@
 # DAML JetBrains Plugin
 
-DAML and Canton tooling for JetBrains IDEs. The plugin connects the official DAML language server (`daml damlc ide` / `dpm damlc ide`) to the IntelliJ Platform native LSP API and adds Script Results, run configurations, Canton file support, and managed local Canton sandbox tools.
+A JetBrains plugin for writing, running, and debugging DAML applications and local Canton networks.
 
-## Status
+## What it does
 
-This is a local-install beta. The repository builds a JetBrains plugin ZIP suitable for **Settings / Preferences -> Plugins -> Gear -> Install Plugin from Disk...**. Marketplace publishing is intentionally not wired into CI yet.
+- DAML syntax highlighting, diagnostics, completion, hover, navigation, symbols, and rename.
+- Script execution with contracts, transaction trees, disclosure, console, and raw results.
+- Run configurations for DAML build, test, script, and start commands.
+- Schema completion for `daml.yaml` and `multi-package.yaml`.
+- Canton config and script support with managed local network profiles.
+- Ledger activity explorer and participant endpoint console.
 
-The repository and Gradle artifact are named `daml-canton-jetbrains`; the JetBrains plugin ID remains `com.moonsonglabs.canton-jetbrains-plugin` to preserve upgrade continuity.
+## Quick start
+
+Requires GoLand 2026.1.2+, JDK 21, and `dpm` or the DAML assistant. Install Canton to use local network tools.
+
+1. Build the plugin:
+
+   ```bash
+   ./gradlew buildPlugin
+   ```
+
+2. Open **Settings / Preferences -> Plugins -> Gear -> Install Plugin from Disk...**.
+3. Select `build/distributions/daml-canton-jetbrains-<version>.zip`.
+4. Open a DAML project, then validate or install the SDK under **Settings -> Languages & Frameworks -> DAML**.
 
 ## Feature Tour
 
-These are production plugin views. Script Results uses a real Lunar Dollar script run; the managed-Canton views use deterministic sample data.
-
 ### Write DAML
 
-Work in `.daml` files with syntax highlighting, diagnostics, hover, completion, document symbols, rename, and go-to-definition. Local fallback navigation resolves DAML imports and explicitly imported symbols when the language server cannot.
+Edit `.daml` files with native highlighting and language-server features.
 
 <img src="docs/images/daml-editor.png" alt="A DAML source file open in the JetBrains editor with native syntax highlighting and line numbers" width="900">
 
-### Run scripts and inspect transactions
+### Inspect Script Results
 
-Open a `Script` from the editor gutter, context menu, or **Tools -> Show DAML Script Results**. The tool window provides Overview, Contracts, Tx Tree, Disclosure, Console, and Raw views.
-
-This capture comes from the real [`testTransferWithSplit`](https://github.com/Moonsong-Labs/canton-apps/blob/ca0ede4441af0b93c653235c2c035f5bde6a77d8/lunar-dollar/daml/Tests/Tests.daml#L34-L56) flow: Alice transfers part of a Lunar Dollar holding to Bob through compliance validation, split, and transfer events.
+Run a `Script` from the editor and inspect its contracts and transactions. Shown here: the real [`testTransferWithSplit`](https://github.com/Moonsong-Labs/canton-apps/blob/ca0ede4441af0b93c653235c2c035f5bde6a77d8/lunar-dollar/daml/Tests/Tests.daml#L34-L56) flow.
 
 <img src="docs/images/daml-script-results.png" alt="DAML Script Results showing the nested transaction tree for a real Lunar Dollar split transfer" width="900">
 
-### Design and run local Canton networks
+### Run local Canton networks
 
-Create multi-participant profiles, assign DARs and parties, connect participants to sync domains, and inspect the resulting topology from the **Managed Canton Sandboxes** tool window.
+Create multi-participant profiles, assign DARs and parties, connect sync domains, and inspect the topology.
 
 <img src="docs/images/managed-canton-network.png" alt="A sample three-participant Canton network in the Managed Canton Sandboxes topology view" width="900">
 
 ### Explore ledger activity
 
-Inspect active and archived contracts, transaction history, parties, synchronizers, raw JSON, and the live network activity timeline for each participant.
+Inspect contracts, transactions, parties, synchronizers, raw JSON, and participant activity.
 
 <img src="docs/images/ledger-explorer.png" alt="The Canton ledger explorer showing sample contract activity, contract details, and a network timeline" width="900">
-
-### More included tooling
-
-- `daml.yaml` and `multi-package.yaml` JSON-schema completion.
-- DAML run configurations for build, test, script, and start.
-- A participant endpoint console for JSON Ledger API discovery and requests.
-- Canton config/script highlighting and run configurations for `.conf`, `.canton`, and `.canton.sc`.
-- Live templates for common DAML declarations and expressions.
-- Per-project runtime settings for DAML SDK, DPM, Canton, logging, telemetry, and extra arguments.
-
-## Requirements
-
-- GoLand 2026.1.2 is the current build and test target. Other JetBrains IDEs based on 2026.1+ may work but are not yet in the verified matrix.
-- `dpm` or the DAML assistant installed locally. The plugin can install DAML SDK `3.4.11` from settings.
-- Canton installed locally for Canton run configurations or managed sandbox workflows.
-- JDK 21 when building the plugin from source.
-
-## Install Locally
-
-1. Build the plugin ZIP as described under [Development](#development), or download one from a GitHub release.
-2. Open **Settings / Preferences -> Plugins** in a compatible JetBrains IDE.
-3. Click the gear icon and choose **Install Plugin from Disk...**.
-4. Select `build/distributions/daml-canton-jetbrains-<version>.zip`.
-5. Restart the IDE if prompted.
-6. Open a DAML/Canton project folder.
-7. Open **Settings -> Languages & Frameworks -> DAML** and validate or install the local runtime.
-
-Expected smoke-test signals:
-
-- The IDE LSP widget shows the DAML Language Server as running.
-- `.daml` files show highlighting, diagnostics, hover, and navigation.
-- A DAML script exposes Script Results and opens the **DAML Script Results** tool window.
-- The **Managed Canton Sandboxes** tool window opens from the right tool-window stripe.
-- DAML and Canton run configurations execute and show output in the Run tool window.
-
-## Development
-
-```bash
-./gradlew --no-daemon --no-configuration-cache test
-./gradlew --no-daemon --no-configuration-cache verifyPluginProjectConfiguration verifyPluginStructure
-./gradlew --no-daemon --no-configuration-cache buildPlugin
-```
-
-The plugin ZIP is written to:
-
-```text
-build/distributions/daml-canton-jetbrains-<version>.zip
-```
-
-Generated build outputs are intentionally ignored. Releases should attach the ZIP generated by CI. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and optional integration tests.
-
-### CI
-
-- `.github/workflows/build.yml`: runs tests, fast IntelliJ plugin configuration/structure verification, and `buildPlugin` for pull requests and pushes to `main`.
-- `.github/workflows/build-release.yml`: builds the release ZIP for `v*.*.*` tags and creates a draft GitHub Release with the ZIP attached.
-- `.github/dependabot.yml`: keeps Gradle and GitHub Actions dependencies current.
-
-Full binary compatibility verification is available through `./gradlew verifyPlugin`. Run it manually before Marketplace publication when the target IDE matrix is intentionally updated.
-
-## License
-
-Apache License 2.0. Includes assets and behavior ported from [`digital-asset/daml`](https://github.com/digital-asset/daml), also Apache-2.0 licensed.
