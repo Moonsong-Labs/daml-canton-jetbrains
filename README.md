@@ -11,7 +11,7 @@ Write, run, and inspect DAML applications and local Canton networks without leav
 
 ## Quick start
 
-Requires GoLand 2026.1.2+, JDK 21, and `dpm` or the DAML assistant. Install Canton to use local network tools.
+Requires a JetBrains IDE based on IntelliJ Platform 2026.1 or newer, JDK 21, and `dpm` or the DAML assistant. Install Canton to use local network tools.
 
 1. Build the plugin:
 
