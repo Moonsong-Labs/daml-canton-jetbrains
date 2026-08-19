@@ -11,16 +11,17 @@ Write, run, and inspect DAML applications and local Canton networks without leav
 
 ## Quick start
 
-Requires a JetBrains IDE based on IntelliJ Platform 2026.1 or newer and JDK 21. Install Canton to use local network tools.
+Requires a JetBrains IDE based on IntelliJ Platform 2026.1 or newer. Install Canton to use local network tools.
 
-1. Build the plugin:
+1. Download the plugin ZIP from the [latest GitHub release](https://github.com/Moonsong-Labs/daml-canton-jetbrains/releases/latest).
+2. Alternatively, build the plugin locally with JDK 21:
 
    ```bash
    ./gradlew buildPlugin
    ```
 
-2. Open **Settings / Preferences -> Plugins -> Gear -> Install Plugin from Disk...** and select `build/distributions/daml-canton-jetbrains-<version>.zip`.
-3. Open a DAML project, then install DPM and the required DAML SDK under **Settings -> Languages & Frameworks -> DAML**.
+3. Open **Settings / Preferences -> Plugins -> Gear -> Install Plugin from Disk...** and select the downloaded ZIP or `build/distributions/daml-canton-jetbrains-<version>.zip`.
+4. Open a DAML project, then install DPM and the required DAML SDK under **Settings -> Languages & Frameworks -> DAML**.
 
 ## Feature tour
 
