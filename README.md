@@ -7,11 +7,11 @@ Write, run, and inspect DAML applications and local Canton networks without leav
 - Edit DAML with highlighting, diagnostics, completion, navigation, symbols, and rename.
 - Run DAML builds, tests, scripts, and local Canton nodes.
 - Inspect script results, contracts, transactions, ledger activity, and participant endpoints.
-- Configure DAML projects and multi-participant Canton networks inside the IDE.
+- Install DPM and DAML SDKs, then configure projects and multi-participant Canton networks inside the IDE.
 
 ## Quick start
 
-Requires a JetBrains IDE based on IntelliJ Platform 2026.1 or newer, JDK 21, and `dpm` or the DAML assistant. Install Canton to use local network tools.
+Requires a JetBrains IDE based on IntelliJ Platform 2026.1 or newer and JDK 21. Install Canton to use local network tools.
 
 1. Build the plugin:
 
@@ -20,7 +20,7 @@ Requires a JetBrains IDE based on IntelliJ Platform 2026.1 or newer, JDK 21, and
    ```
 
 2. Open **Settings / Preferences -> Plugins -> Gear -> Install Plugin from Disk...** and select `build/distributions/daml-canton-jetbrains-<version>.zip`.
-3. Open a DAML project, then select its SDK under **Settings -> Languages & Frameworks -> DAML**.
+3. Open a DAML project, then install DPM and the required DAML SDK under **Settings -> Languages & Frameworks -> DAML**.
 
 ## Feature tour
 
