@@ -1,6 +1,7 @@
 package com.moonsonglabs.daml.sandbox
 
 import java.nio.file.Path
+import java.nio.file.Files
 
 object SandboxPaths {
     fun workspaceRoot(profile: SandboxProfile, projectRoot: Path? = null): Path? {
@@ -41,11 +42,19 @@ object SandboxPaths {
     }
 
     fun relativePath(baseDirectory: Path, target: Path): String {
-        val base = baseDirectory.toAbsolutePath().normalize()
-        val resolvedTarget = if (target.isAbsolute) target.normalize() else base.resolve(target).normalize()
+        val lexicalBase = baseDirectory.toAbsolutePath().normalize()
+        val base = canonicalLocation(lexicalBase)
+        val resolvedTarget = canonicalLocation(if (target.isAbsolute) target.normalize() else lexicalBase.resolve(target).normalize())
         val relative = runCatching { base.relativize(resolvedTarget) }
-            .getOrElse { resolvedTarget.fileName ?: resolvedTarget }
+            .getOrElse { resolvedTarget }
         return invariantSeparators(relative.toString().ifBlank { "." })
+    }
+
+    // macOS /var and /tmp aliases must be resolved before counting parent segments for runtime scripts.
+    private fun canonicalLocation(path: Path): Path {
+        var ancestor = path
+        while (!Files.exists(ancestor) && ancestor.parent != null) ancestor = ancestor.parent
+        return runCatching { ancestor.toRealPath().resolve(ancestor.relativize(path)).normalize() }.getOrDefault(path)
     }
 
     fun relativeProfilePath(rawPath: String, profile: SandboxProfile, projectRoot: Path? = null): String {
@@ -81,6 +90,34 @@ object SandboxPaths {
             topologyPositions = profile.topologyPositions.map { it.copy() }.toMutableList(),
             generatedPath = generatedPath
         )
+    }
+
+    /** Version 2 exports anchor every path to the JSON file, independent of IDE project roots. */
+    fun profileForExport(profile: SandboxProfile, projectRoot: Path?, file: Path): SandboxProfile = profile.deepCopy().apply {
+        val base = file.toAbsolutePath().parent
+        workspacePath = relativePath(base, workspaceRoot(profile, projectRoot) ?: base)
+        generatedPath = relativePath(base, generatedRoot(profile, projectRoot))
+        darAssignments.forEach { it.darPath = relativePath(base, resolveProfilePath(it.darPath, profile, projectRoot)) }
+        schemaVersion = 2
+    }
+
+    fun importPaths(profile: SandboxProfile, file: Path, inferredWorkspace: Path?, projectRoot: Path?) {
+        val base = file.toAbsolutePath().parent
+        if (profile.schemaVersion >= 2) {
+            require(profile.schemaVersion == 2) { "Unsupported sandbox profile version ${profile.schemaVersion}" }
+            profile.workspacePath = base.resolve(profile.workspacePath.ifBlank { "." }).normalize().toString()
+            profile.generatedPath = base.resolve(profile.generatedPath.ifBlank { "." }).normalize().toString()
+            profile.darAssignments.forEach { it.darPath = base.resolve(it.darPath).normalize().toString() }
+        } else if (inferredWorkspace != null) {
+            val raw = Path.of(profile.workspacePath.ifBlank { "." })
+            val legacyProjectPath = projectRoot?.resolve(raw)?.normalize()
+            val isGenerated = file.fileName.toString() == "profile.json" && base.parent?.fileName?.toString() == SandboxDefaults.GENERATED_DIR
+            profile.workspacePath = if (isGenerated && (legacyProjectPath == inferredWorkspace.normalize() ||
+                    (!raw.isAbsolute && raw.toString() != "." && inferredWorkspace.endsWith(raw) &&
+                        !java.nio.file.Files.exists(inferredWorkspace.resolve(raw))))) {
+                inferredWorkspace.toString()
+            } else inferredWorkspace.resolve(raw).normalize().toString()
+        }
     }
 
     fun invariantSeparators(value: String): String =

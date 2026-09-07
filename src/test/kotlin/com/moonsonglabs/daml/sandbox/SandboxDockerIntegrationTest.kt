@@ -38,6 +38,8 @@ class SandboxDockerIntegrationTest {
             partyAllocations.add(PartyAllocation("Bob", participants[1].id, synchronizers[0].id))
         }
         val generated = SandboxGenerator().generate(profile)
+        // The fixture explicitly exposes APIs inside its isolated container; generated local APIs remain loopback-only.
+        Files.writeString(generated.localConfig, Files.readString(generated.localConfig).replace("127.0.0.1", "0.0.0.0"))
         val containerName = "canton-sandbox-it-${UUID.randomUUID().toString().take(8)}"
         val outputFile = root.resolve("docker-output.log")
         val cantonCommand = """
