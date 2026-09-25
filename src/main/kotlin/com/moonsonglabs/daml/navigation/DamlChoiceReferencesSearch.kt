@@ -23,7 +23,7 @@ class DamlChoiceReferencesSearch : QueryExecutor<PsiReference, ReferencesSearch.
         val scope = queryParameters.effectiveSearchScope as? GlobalSearchScope ?: GlobalSearchScope.projectScope(project)
 
         for (file in FileTypeIndex.getFiles(DamlFileType, scope)) {
-            if (!shouldIndex(file)) continue
+            if (!DamlUsageScope.accepts(project, file)) continue
             val psiFile = psiManager.findFile(file) ?: continue
             for (use in DamlChoiceNames.uses(psiFile.text).filter { it.name == declaration.name }) {
                 val element = psiFile.findElementAt(use.startOffset) ?: continue
@@ -43,13 +43,6 @@ class DamlChoiceReferencesSearch : QueryExecutor<PsiReference, ReferencesSearch.
     private fun sameChoiceDeclaration(element: PsiElement?, declaration: ChoiceDeclarationTarget): Boolean =
         element?.containingFile?.virtualFile == declaration.file &&
             element.textRange.startOffset == declaration.offset
-
-    private fun shouldIndex(file: VirtualFile): Boolean {
-        val parts = file.path.split('/')
-        return parts.none {
-            it == ".daml" || it == "build" || it == "out" || it == "node_modules" || it == ".gradle"
-        }
-    }
 
     private data class ChoiceDeclarationTarget(
         val name: String,

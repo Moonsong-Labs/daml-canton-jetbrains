@@ -1,6 +1,5 @@
 package com.moonsonglabs.daml.sandbox
 
-import com.moonsonglabs.daml.sdk.DamlSdkVersions
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -15,6 +14,8 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 class SandboxDockerIntegrationTest {
+    private val fixtureSdkVersion = "3.4.11"
+
     @Test
     fun `generated local recipe boots in Docker Canton runtime`() {
         assumeTrue(
@@ -38,10 +39,12 @@ class SandboxDockerIntegrationTest {
             partyAllocations.add(PartyAllocation("Bob", participants[1].id, synchronizers[0].id))
         }
         val generated = SandboxGenerator().generate(profile)
+        // The fixture explicitly exposes APIs inside its isolated container; generated local APIs remain loopback-only.
+        Files.writeString(generated.localConfig, Files.readString(generated.localConfig).replace("127.0.0.1", "0.0.0.0"))
         val containerName = "canton-sandbox-it-${UUID.randomUUID().toString().take(8)}"
         val outputFile = root.resolve("docker-output.log")
         val cantonCommand = """
-            CANTON_JAR="${'$'}{CANTON_JAR:-/home/daml/.dpm/cache/components/canton-enterprise/${DamlSdkVersions.DEFAULT}/lib/canton-enterprise-${DamlSdkVersions.DEFAULT}.jar}"
+            CANTON_JAR="${'$'}{CANTON_JAR:-/home/daml/.dpm/cache/components/canton-enterprise/$fixtureSdkVersion/lib/canton-enterprise-$fixtureSdkVersion.jar}"
             if [ ! -f "${'$'}CANTON_JAR" ]; then
               CANTON_JAR="${'$'}(find /home/daml/.dpm/cache/components -path '*/lib/canton*.jar' -type f 2>/dev/null | sort -r | head -n 1)"
             fi

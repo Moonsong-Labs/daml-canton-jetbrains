@@ -238,6 +238,32 @@ const mergedTransactions = webview.mergeTransactionGroups(
 );
 assert.strictEqual(mergedTransactions.length, 1);
 assert.strictEqual(mergedTransactions[0].events.length, 2);
+const executionTree = {
+  id: '4',
+  events: [{ eventId: '#4:0', kind: 'Exercise', source: 'transaction', contractId: '#3:3', children: [
+    { eventId: '#4:1', kind: 'Fetch', source: 'transaction', contractId: '#3:2' },
+    { eventId: '#4:2', kind: 'Exercise', source: 'transaction', contractId: '#3:2', children: [
+      { eventId: '#4:3', kind: 'Fetch', source: 'transaction', contractId: '#2:0' },
+      { eventId: '#4:4', kind: 'Exercise', source: 'transaction', contractId: '#2:0', children: [
+        { eventId: '#4:5', kind: 'Fetch', source: 'transaction', contractId: '#0:0' },
+        { eventId: '#4:6', kind: 'Fetch', source: 'transaction', contractId: '#1:0' },
+        { eventId: '#4:7', kind: 'Exercise', source: 'transaction', contractId: '#1:0' },
+        { eventId: '#4:8', kind: 'Create', source: 'transaction', contractId: '#4:8' }
+      ] }
+    ] }
+  ] }]
+};
+const completeExecution = webview.mergeTransactionGroups([executionTree], [{ id: '4', events: [
+  { kind: 'Create', source: 'contract', contractId: '#4:8' }
+] }])[0];
+assert.strictEqual(completeExecution.events.length, 1);
+assert.deepStrictEqual(webview.flattenEvents(completeExecution.events).map(event => event.eventId),
+  Array.from({ length: 9 }, (_, index) => '#4:' + index));
+const repeatedFetches = webview.mergeTransactionGroups([{ id: '4', events: [
+  { eventId: '#4:1', kind: 'Fetch', source: 'transaction', contractId: '#1:0' },
+  { eventId: '#4:2', kind: 'Fetch', source: 'transaction', contractId: '#1:0' }
+] }], []);
+assert.strictEqual(repeatedFetches[0].events.length, 2);
 assert.strictEqual(webview.flattenEvents([{ kind: 'Create', children: [{ kind: 'Exercise' }] }]).length, 2);
 const damlTxs = webview.damlTransactionsFromText(`
 Transactions:
@@ -301,3 +327,9 @@ assert.strictEqual(webview.mergeConsoleEntries(
   [{ text: 'TRACE: [Test] OK (flow + privacy)', severity: 'debug' }],
   [{ text: '[Test] OK (flow + privacy)', severity: 'debug' }]
 ).length, 1);
+
+const pendingScript = { progressMs: -1, originalHtml: '', notes: [] };
+assert.strictEqual(webview.scriptProgressLabel(pendingScript), 'Waiting for script');
+assert.strictEqual(webview.scriptProgressLabel({ ...pendingScript, notes: [{ text: 'Script unavailable' }] }), 'Server message — see Console');
+assert.strictEqual(webview.scriptProgressLabel({ ...pendingScript, progressMs: 1000 }), 'Running 1s');
+assert.strictEqual(webview.scriptProgressLabel({ ...pendingScript, originalHtml: '<p>Return value: {}</p>' }), 'Result available');

@@ -39,6 +39,7 @@ class DamlColorSettingsPage : ColorSettingsPage {
             AttributesDescriptor("Names//Native type", DamlSyntaxHighlighter.PRELUDE_TYPE),
             AttributesDescriptor("Names//Module", DamlSyntaxHighlighter.MODULE_NAME),
             AttributesDescriptor("Names//Declaration", DamlSyntaxHighlighter.DECLARATION_NAME),
+            AttributesDescriptor("Names//Function call", DamlSyntaxHighlighter.FUNCTION_CALL),
             AttributesDescriptor("Names//Choice", DamlSyntaxHighlighter.CHOICE_NAME),
             AttributesDescriptor("Names//Field", DamlSyntaxHighlighter.FIELD_NAME),
             AttributesDescriptor("Names//Type parameter", DamlSyntaxHighlighter.TYPE_PARAMETER),
@@ -66,6 +67,7 @@ class DamlColorSettingsPage : ColorSettingsPage {
         private val TAGS = mapOf(
             "module" to DamlSyntaxHighlighter.MODULE_NAME,
             "decl" to DamlSyntaxHighlighter.DECLARATION_NAME,
+            "functionCall" to DamlSyntaxHighlighter.FUNCTION_CALL,
             "choiceName" to DamlSyntaxHighlighter.CHOICE_NAME,
             "field" to DamlSyntaxHighlighter.FIELD_NAME,
             "type" to DamlSyntaxHighlighter.TYPE_NAME,
@@ -116,10 +118,14 @@ template <decl>Deposit</decl>
         <builtin>assert</builtin> (amount > 0.0)
         <builtin>pure</builtin> (<constructor>Some</constructor> <predefined>()</predefined>)
 
+<decl>doubleAmount</decl> : <preludeType>Decimal</preludeType> -> <preludeType>Decimal</preludeType>
+<decl>doubleAmount</decl> amount = amount * 2.0
+
 <scriptName>setup</scriptName> : <preludeType>Script</preludeType> ()
 <scriptName>setup</scriptName> = script do
   <party>alice</party> <- <builtin>allocateParty</builtin> "Alice"
   <builtin>debug</builtin> "[Test] OK"
+  let amounts = map <functionCall>doubleAmount</functionCall> [1.0, <functionCall>doubleAmount</functionCall> 2.0]
   _ <- <builtin>createUser</builtin> (<preludeType>User</preludeType> userId (<constructor>Some</constructor> <party>alice</party>)) [<constructor>CanActAs</constructor> <party>alice</party>]
   let due = <builtin>time</builtin> (<builtin>date</builtin> 2026 Jan 1) 10 00 00
   _ <- <builtin>submit</builtin> <party>alice</party> do

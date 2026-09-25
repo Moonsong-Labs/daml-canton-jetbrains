@@ -51,9 +51,10 @@ object RuntimeEnvironment {
         settings?.binaryPath?.takeIf { it.isNotBlank() }?.let { Path.of(it).parent }?.let(dirs::add)
         settings?.cantonBinaryPath?.takeIf { it.isNotBlank() }?.let { Path.of(it).parent }?.let(dirs::add)
 
-        val sdkVersion = settings?.selectedSdkVersion?.takeIf { it.isNotBlank() } ?: DamlSdkVersions.DEFAULT
+        val sdkVersion = settings?.selectedSdkVersion?.takeIf { it.isNotBlank() && it != DamlSdkVersions.DEFAULT }
+            ?: DamlSdkVersions.installed(userHome).firstOrNull()
         userHome?.let { home ->
-            dirs.add(Path.of(home, ".daml", "sdk", sdkVersion, "daml"))
+            sdkVersion?.let { dirs.add(Path.of(home, ".daml", "sdk", it, "daml")) }
             dirs.add(Path.of(home, ".dpm", "bin"))
             dirs.add(Path.of(home, ".daml", "bin"))
         }

@@ -12,10 +12,8 @@ import com.intellij.lang.PsiStructureViewFactory
 import com.intellij.navigation.ItemPresentation
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
-import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiFile
 import com.moonsonglabs.daml.DamlIcons
-import com.moonsonglabs.daml.navigation.DamlModuleNames
 import javax.swing.Icon
 
 class DamlStructureViewFactory : PsiStructureViewFactory {
@@ -38,7 +36,7 @@ private class DamlStructureViewModel(
     override fun isAlwaysLeaf(element: StructureViewTreeElement): Boolean =
         (element as? DamlStructureTreeElement)?.childrenElements?.isEmpty() != false
 
-    override fun getSuitableClasses(): Array<Class<*>> = arrayOf(PsiFile::class.java)
+    override fun getSuitableClasses(): Array<Class<*>> = arrayOf(PsiFile::class.java, com.moonsonglabs.daml.lang.DamlNamedElement::class.java)
 }
 
 private class DamlStructureTreeElement(
@@ -46,7 +44,7 @@ private class DamlStructureTreeElement(
     private val item: DamlStructureItem?,
     val childrenElements: List<DamlStructureTreeElement>
 ) : StructureViewTreeElement {
-    override fun getValue(): Any = item?.let { file.findElementAt(it.offset) ?: file } ?: file
+    override fun getValue(): Any = item?.let { com.moonsonglabs.daml.lang.DamlNamedElement.at(file, it.offset) ?: file.findElementAt(it.offset) ?: file } ?: file
 
     override fun getPresentation(): ItemPresentation =
         item?.presentation() ?: PresentationData(file.name, null, DamlIcons.File, null)
@@ -65,14 +63,14 @@ private class DamlStructureTreeElement(
     private fun DamlStructureItem.presentation(): ItemPresentation =
         PresentationData(
             name,
-            kind.location,
+            signature ?: kind.location,
             kind.icon,
             null
         )
 
     companion object {
         fun root(file: PsiFile): DamlStructureTreeElement {
-            val structure = DamlStructureParser.parse(file.text)
+            val structure = DamlStructureParser.fromModel(com.moonsonglabs.daml.lang.DamlSourceModel.get(file))
             val moduleChildren = buildList {
                 structure.importGroup()?.let { add(element(file, it)) }
                 structure.declarations.forEach { add(element(file, it)) }
@@ -112,7 +110,8 @@ data class DamlStructureItem(
     val name: String,
     val kind: DamlStructureKind,
     val offset: Int,
-    val children: List<DamlStructureItem> = emptyList()
+    val children: List<DamlStructureItem> = emptyList(),
+    val signature: String? = null
 )
 
 enum class DamlStructureKind(
@@ -131,88 +130,25 @@ enum class DamlStructureKind(
     EXCEPTION("exception", AllIcons.Nodes.ExceptionClass),
     CHOICE("choice", AllIcons.Nodes.Method),
     FUNCTION("function", AllIcons.Nodes.Function),
+    FIELD("field", AllIcons.Nodes.Field),
+    CONSTRUCTOR("constructor", AllIcons.Nodes.Class),
+    METHOD("method", AllIcons.Nodes.Method),
     VALUE("value", AllIcons.Nodes.Variable)
 }
 
 object DamlStructureParser {
-    private val moduleRegex = Regex("""^\s*module\s+([A-Z][A-Za-z0-9_']*(?:\.[A-Z][A-Za-z0-9_']*)*)\s*(?:\([^)]*\)\s*)?where\b""")
-    private val importRegex = Regex("""^\s*import\s+(?:qualified\s+)?([A-Z][A-Za-z0-9_']*(?:\.[A-Z][A-Za-z0-9_']*)*)\b(?:\s+as\s+([A-Z][A-Za-z0-9_']*))?""")
-    private val typeRegex = Regex("""^\s*(interface|template|data|newtype|type|class|exception)\s+([A-Z][A-Za-z0-9_']*)\b""")
-    private val choiceRegex = Regex("""^\s*(?:(?:nonconsuming|preconsuming|postconsuming)\s+)?choice\s+([A-Z][A-Za-z0-9_']*)\b""")
-    private val valueRegex = Regex("""^\s*([a-z_][A-Za-z0-9_']*)\s*(?::|=(?!=))""")
-    private val ignoredValueNames = setOf(
-        "module", "import", "where", "let", "in", "do", "case", "of", "if", "then", "else",
-        "with", "controller", "signatory", "observer", "agreement", "ensure", "key", "maintainer"
-    )
-
-    fun parse(text: String): DamlStructure {
-        val declarations = mutableListOf<DamlStructureItem>()
-        val imports = mutableListOf<DamlStructureItem>()
-        var module: DamlStructureItem? = null
-        var offset = 0
-
-        text.lineSequence().forEach { line ->
-            val indent = line.indexOfFirst { !it.isWhitespace() }.let { if (it == -1) line.length else it }
-            val codeOffset = offset + indent
-            if (indent < line.length && DamlModuleNames.isCodePosition(text, codeOffset)) {
-                if (module == null) {
-                    moduleRegex.find(line)?.let { match ->
-                        val group = match.groups[1]!!
-                        module = DamlStructureItem(group.value, DamlStructureKind.MODULE, offset + group.range.first)
-                    }
-                }
-
-                importRegex.find(line)?.let { match ->
-                    val moduleGroup = match.groups[1]!!
-                    val alias = match.groups[2]?.value
-                    val name = if (alias == null) moduleGroup.value else "${moduleGroup.value} as $alias"
-                    imports += DamlStructureItem(name, DamlStructureKind.IMPORT, offset + moduleGroup.range.first)
-                }
-
-                declaration(line, offset, indent)?.let { declarations += it }
-            }
-            offset += line.length + 1
+    fun parse(text: String): DamlStructure = fromModel(com.moonsonglabs.daml.lang.DamlSourceModel.parse(text))
+    fun fromModel(model: com.moonsonglabs.daml.lang.DamlSourceModel): DamlStructure {
+        val visible = model.symbols.filter { it.kind !in com.moonsonglabs.daml.lang.DamlSourceModel.PRIVATE_KINDS }
+        val byOwner = visible.groupBy { it.owner }
+        fun item(symbol: com.moonsonglabs.daml.lang.DamlSourceModel.Symbol): DamlStructureItem {
+            val kind = runCatching { DamlStructureKind.valueOf(symbol.kind.name) }.getOrDefault(DamlStructureKind.FUNCTION)
+            return DamlStructureItem(symbol.name, kind, symbol.start, byOwner[symbol.start].orEmpty().map(::item), symbol.signature)
         }
-
-        return DamlStructure(module, imports, declarations.distinctBy { it.kind to it.offset })
-    }
-
-    private fun declaration(line: String, lineOffset: Int, indent: Int): DamlStructureItem? {
-        typeRegex.find(line)?.let { match ->
-            val kind = when (match.groups[1]!!.value) {
-                "template" -> DamlStructureKind.TEMPLATE
-                "interface" -> DamlStructureKind.INTERFACE
-                "data" -> DamlStructureKind.DATA
-                "newtype" -> DamlStructureKind.NEWTYPE
-                "type" -> DamlStructureKind.TYPE
-                "class" -> DamlStructureKind.CLASS
-                "exception" -> DamlStructureKind.EXCEPTION
-                else -> null
-            } ?: return null
-            val name = match.groups[2]!!
-            return DamlStructureItem(name.value, kind, lineOffset + name.range.first)
-        }
-
-        choiceRegex.find(line)?.let { match ->
-            val name = match.groups[1]!!
-            return DamlStructureItem(name.value, DamlStructureKind.CHOICE, lineOffset + name.range.first)
-        }
-
-        if (indent == 0) {
-            valueRegex.find(line)?.let { match ->
-                val name = match.groups[1]!!
-                val value = name.value
-                if (value !in ignoredValueNames) {
-                    val kind = if (line.substring(name.range.last + 1).trimStart().startsWith(":")) {
-                        DamlStructureKind.FUNCTION
-                    } else {
-                        DamlStructureKind.VALUE
-                    }
-                    return DamlStructureItem(value, kind, lineOffset + name.range.first)
-                }
-            }
-        }
-
-        return null
+        return DamlStructure(
+            model.module?.let { DamlStructureItem(it, DamlStructureKind.MODULE, model.moduleStart ?: 0) },
+            model.imports.map { DamlStructureItem(it.module + (it.alias?.let { alias -> " as $alias" } ?: ""), DamlStructureKind.IMPORT, it.moduleStart) },
+            visible.filter { it.owner == null }.map(::item)
+        )
     }
 }

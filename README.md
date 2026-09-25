@@ -27,7 +27,7 @@ Requires a JetBrains IDE based on IntelliJ Platform 2026.1 or newer. Install Can
 
 ### Write DAML
 
-Highlight, complete, navigate, and refactor `.daml` files.
+Highlight, complete, navigate, and refactor `.daml` files. See the [editor guide](docs/editor-guide.md) for native navigation, safe rename previews, optional hints, and SDK-dependent capabilities.
 
 <img src="docs/images/daml-editor.png" alt="A DAML source file open in the JetBrains editor with native syntax highlighting and line numbers" width="900">
 

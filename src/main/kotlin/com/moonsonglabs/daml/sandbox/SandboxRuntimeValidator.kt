@@ -39,6 +39,8 @@ class SandboxRuntimeValidator(private val project: Project) {
 
     private fun validateTopology(profile: SandboxProfile): List<Check> {
         val checks = mutableListOf<Check>()
+        val identityErrors = SandboxTopology.identityErrors(profile)
+        checks += Check("node identity", identityErrors.isEmpty(), identityErrors.joinToString("; ").ifBlank { "all IDs and connections unique" })
         checks += Check("participants", profile.participants.isNotEmpty(), "${profile.participants.size} participant(s)")
         checks += Check("synchronizers", profile.synchronizers.isNotEmpty(), "${profile.synchronizers.size} synchronizer(s)")
         val identifiers = profile.participants.map { it.name } +

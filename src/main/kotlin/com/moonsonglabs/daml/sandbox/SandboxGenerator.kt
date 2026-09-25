@@ -1,7 +1,6 @@
 package com.moonsonglabs.daml.sandbox
 
 import com.google.gson.GsonBuilder
-import com.moonsonglabs.daml.sdk.DamlSdkVersions
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -9,18 +8,23 @@ class SandboxGenerator(private val projectRoot: Path? = null) {
     private val gson = GsonBuilder().setPrettyPrinting().create()
 
     fun generate(profile: SandboxProfile): SandboxGeneratedFiles =
-        writeGeneratedFiles(profile, cleanupLegacy = true)
+        writeGeneratedFiles(profile)
 
     fun updateGeneratedFiles(profile: SandboxProfile): SandboxGeneratedFiles =
-        writeGeneratedFiles(profile, cleanupLegacy = false)
+        writeGeneratedFiles(profile)
 
-    private fun writeGeneratedFiles(profile: SandboxProfile, cleanupLegacy: Boolean): SandboxGeneratedFiles {
+    private fun writeGeneratedFiles(profile: SandboxProfile): SandboxGeneratedFiles {
         val root = generatedRoot(profile)
         val localDir = root.resolve("local")
         val scriptsDir = root.resolve("scripts")
         val logsDir = localDir.resolve("log")
+        val outputs = listOf("profile.json", ".gitignore", "local/canton.conf", "local/bootstrap.canton", "local/run.sh",
+            "scripts/upload-dars.canton", "scripts/allocate-parties.canton", "scripts/status.canton")
+        (listOf(root, localDir, scriptsDir) + outputs.map(root::resolve)).forEach {
+            require(!Files.isSymbolicLink(it)) { "Refusing to overwrite a symbolic link: $it" }
+        }
         listOf(localDir, scriptsDir).forEach(Files::createDirectories)
-        if (cleanupLegacy) deleteLegacyGeneratedDirs(root)
+        SandboxFileOwnership.record(root)
 
         val profileJson = root.resolve("profile.json")
         val localConfig = localDir.resolve("canton.conf")
@@ -30,7 +34,7 @@ class SandboxGenerator(private val projectRoot: Path? = null) {
         val allocationScript = scriptsDir.resolve("allocate-parties.canton")
         val statusScript = scriptsDir.resolve("status.canton")
 
-        Files.writeString(profileJson, gson.toJson(SandboxPaths.profileForConfig(profile, projectRoot, root)))
+        Files.writeString(profileJson, gson.toJson(SandboxPaths.profileForExport(profile, projectRoot, profileJson)))
         Files.writeString(localConfig, localConfig(profile))
         Files.writeString(localBootstrap, localBootstrap(profile, localDir))
         Files.writeString(localRunScript, localRunScript(profile))
@@ -78,7 +82,7 @@ class SandboxGenerator(private val projectRoot: Path? = null) {
         appendLine("""CONF="canton.conf"""")
         appendLine("""BOOT="bootstrap.canton"""")
         appendLine("""LOG_DIR="log"""")
-        appendLine("""SDK_VERSION="${'$'}{CANTON_SDK_VERSION:-${DamlSdkVersions.DEFAULT}}"""")
+        appendLine("""SDK_VERSION="${'$'}{CANTON_SDK_VERSION:-}"""")
         appendLine("""CANTON_JAR_DEFAULT="${'$'}HOME/.daml/sdk/${'$'}SDK_VERSION/canton/canton.jar"""")
         appendLine("""CANTON_DPM_JAR_DEFAULT="${'$'}HOME/.dpm/cache/components/canton-enterprise/${'$'}SDK_VERSION/lib/canton-enterprise-${'$'}SDK_VERSION.jar"""")
         appendLine("""CANTON_JAR="${'$'}{CANTON_JAR:-}"""")
@@ -88,7 +92,7 @@ class SandboxGenerator(private val projectRoot: Path? = null) {
         appendLine("""  elif [[ -f "${'$'}CANTON_DPM_JAR_DEFAULT" ]]; then""")
         appendLine("    CANTON_JAR=\"${'$'}CANTON_DPM_JAR_DEFAULT\"")
         appendLine("""  else""")
-        appendLine("""    CANTON_JAR="$(find "${'$'}HOME/.dpm/cache/components" -path '*/lib/canton*.jar' -type f 2>/dev/null | sort -r | head -n 1 || true)"""")
+        appendLine("""    CANTON_JAR="$(find "${'$'}HOME/.daml/sdk" "${'$'}HOME/.dpm/cache/components" -type f \( -path '*/canton/canton.jar' -o -path '*/lib/canton*.jar' \) 2>/dev/null | sort -r | head -n 1 || true)"""")
         appendLine("""  fi""")
         appendLine("""fi""")
         appendLine()
@@ -237,9 +241,9 @@ class SandboxGenerator(private val projectRoot: Path? = null) {
         indent: String
     ): String = buildString {
         appendLine("$indent${participant.name} {")
-        appendLine("$indent  ledger-api      { address = \"0.0.0.0\", port = ${participant.ledgerPort} }")
-        appendLine("$indent  admin-api       { address = \"0.0.0.0\", port = ${participant.adminPort} }")
-        appendLine("$indent  http-ledger-api { address = \"0.0.0.0\", port = ${participant.jsonPort} }")
+        appendLine("$indent  ledger-api      { address = \"127.0.0.1\", port = ${participant.ledgerPort} }")
+        appendLine("$indent  admin-api       { address = \"127.0.0.1\", port = ${participant.adminPort} }")
+        appendLine("$indent  http-ledger-api { address = \"127.0.0.1\", port = ${participant.jsonPort} }")
         appendLine("${indent}  storage.type = memory")
         appendLine("$indent}")
     }
@@ -249,8 +253,8 @@ class SandboxGenerator(private val projectRoot: Path? = null) {
         indent: String
     ): String = buildString {
         appendLine("$indent${sequencer.name} {")
-        appendLine("$indent  public-api { address = \"0.0.0.0\", port = ${sequencer.publicPort} }")
-        appendLine("$indent  admin-api  { address = \"0.0.0.0\", port = ${sequencer.adminPort} }")
+        appendLine("$indent  public-api { address = \"127.0.0.1\", port = ${sequencer.publicPort} }")
+        appendLine("$indent  admin-api  { address = \"127.0.0.1\", port = ${sequencer.adminPort} }")
         appendLine("${indent}  storage.type = memory")
         appendLine("$indent}")
     }
@@ -260,7 +264,7 @@ class SandboxGenerator(private val projectRoot: Path? = null) {
         indent: String
     ): String = buildString {
         appendLine("$indent${mediator.name} {")
-        appendLine("$indent  admin-api { address = \"0.0.0.0\", port = ${mediator.adminPort} }")
+        appendLine("$indent  admin-api { address = \"127.0.0.1\", port = ${mediator.adminPort} }")
         appendLine("${indent}  storage.type = memory")
         appendLine("$indent}")
     }
@@ -278,12 +282,6 @@ class SandboxGenerator(private val projectRoot: Path? = null) {
             |*.log
             |""".trimMargin()
         )
-    }
-
-    private fun deleteLegacyGeneratedDirs(root: Path) {
-        root.resolve("logs").toFile().deleteRecursively()
-        root.resolve("data").toFile().deleteRecursively()
-        root.resolve("dars").toFile().deleteRecursively()
     }
 
     private fun scalaString(value: String): String =

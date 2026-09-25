@@ -9,16 +9,23 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.moonsonglabs.daml.DamlBundle
+import com.moonsonglabs.daml.lsp.DamlBinaryLocator
 import com.moonsonglabs.daml.runtime.RuntimeEnvironment
 import com.moonsonglabs.daml.sdk.DamlSdkInstaller
 import com.moonsonglabs.daml.sdk.DamlSdkVersions
+import com.moonsonglabs.daml.workspace.DamlWorkspaceService
 import java.awt.BorderLayout
+import java.awt.FlowLayout
+import javax.swing.DefaultComboBoxModel
 import javax.swing.JButton
 import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JPanel
 
 class DamlSettingsComponent(private val project: Project) {
+    private var disposed = false
+    private var refreshing = false
+    private var installing = false
 
     val binaryPathField = TextFieldWithBrowseButton().apply {
         toolTipText = DamlBundle.message("daml.settings.binaryPath.tooltip")
@@ -52,10 +59,14 @@ class DamlSettingsComponent(private val project: Project) {
     private val installDpmButton = JButton(DamlBundle.message("daml.settings.installDpm.button")).apply {
         toolTipText = DamlBundle.message("daml.settings.installDpm.tooltip")
         addActionListener {
+            setInstalling(true)
             runtimeStatusLabel.text = "Installing DPM CLI..."
             DamlSdkInstaller.getInstance(project).installDpmCli { status ->
+                if (disposed) return@installDpmCli
+                setInstalling(false)
                 runtimeStatusLabel.text = status
                 updateDpmBinaryPath()
+                refreshSdkVersions()
             }
         }
     }
@@ -73,19 +84,32 @@ class DamlSettingsComponent(private val project: Project) {
     private val installSdkButton = JButton(DamlBundle.message("daml.settings.installSdk.button")).apply {
         toolTipText = DamlBundle.message("daml.settings.installSdk.tooltip")
         addActionListener {
+            setInstalling(true)
             runtimeStatusLabel.text = "Installing DAML SDK ${selectedSdkVersion()}..."
             DamlSdkInstaller.getInstance(project).installSelected(
                 selectedSdkVersion(),
                 binaryPathField.text.trim()
             ) { status ->
+                if (disposed) return@installSelected
+                setInstalling(false)
                 runtimeStatusLabel.text = status
+                refreshSdkVersions()
             }
         }
     }
 
+    private val refreshSdkButton = JButton(DamlBundle.message("daml.settings.refreshSdk.button")).apply {
+        addActionListener { refreshSdkVersions() }
+    }
+
+    private val sdkCatalogStatusLabel = JBLabel()
+
     private val sdkVersionPanel = JPanel(BorderLayout(6, 0)).apply {
         add(sdkVersionCombo, BorderLayout.CENTER)
-        add(installSdkButton, BorderLayout.EAST)
+        add(JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+            add(refreshSdkButton)
+            add(installSdkButton)
+        }, BorderLayout.EAST)
     }
 
     val logLevelCombo = JComboBox(arrayOf("error", "warning", "info", "debug", "trace"))
@@ -112,6 +136,7 @@ class DamlSettingsComponent(private val project: Project) {
 
     val panel: JPanel = FormBuilder.createFormBuilder()
         .addLabeledComponent(DamlBundle.message("daml.settings.sdkVersion.label"), sdkVersionPanel, 1, false)
+        .addComponent(sdkCatalogStatusLabel, 1)
         .addLabeledComponent(DamlBundle.message("daml.settings.runtimeStatus.label"), runtimeStatusLabel, 1, false)
         .addLabeledComponent(DamlBundle.message("daml.settings.binaryPath.label"), binaryPathField, 1, false)
         .addLabeledComponent(DamlBundle.message("daml.settings.cantonBinaryPath.label"), cantonBinaryPathField, 1, false)
@@ -137,6 +162,7 @@ class DamlSettingsComponent(private val project: Project) {
         extraArgsField.text = s.extraArguments
         cantonExtraArgsField.text = s.cantonExtraArguments
         multiPackageCheckbox.isSelected = s.multiPackageIdeSupport
+        refreshSdkVersions()
     }
 
     fun saveTo(s: DamlProjectSettings) {
@@ -173,6 +199,37 @@ class DamlSettingsComponent(private val project: Project) {
             "dpm",
             DamlProjectSettings.getInstance(project)
         )?.toString() ?: "Not found"
+    }
+
+    private fun refreshSdkVersions() {
+        if (disposed || refreshing || installing) return
+        refreshing = true
+        refreshSdkButton.isEnabled = false
+        sdkCatalogStatusLabel.text = "Loading published SDK releases..."
+        DamlSdkInstaller.getInstance(project).refreshVersions { catalog ->
+            if (disposed) return@refreshVersions
+            // Preserve an unsaved/manual selection even if it is absent from the remote catalog.
+            val selected = selectedSdkVersion()
+            val workspace = DamlWorkspaceService.getInstance(project).defaultWorkspace()
+            val projectVersion = DamlBinaryLocator.workspaceSdkVersion(workspace)
+            val versions = DamlSdkVersions.choices(catalog.versions + listOfNotNull(projectVersion, selected))
+            sdkVersionCombo.model = DefaultComboBoxModel(versions.toTypedArray())
+            sdkVersionCombo.selectedItem = selected
+            sdkCatalogStatusLabel.text = catalog.message
+            refreshing = false
+            refreshSdkButton.isEnabled = !installing
+        }
+    }
+
+    private fun setInstalling(value: Boolean) {
+        installing = value
+        installDpmButton.isEnabled = !value
+        installSdkButton.isEnabled = !value
+        refreshSdkButton.isEnabled = !value && !refreshing
+    }
+
+    fun dispose() {
+        disposed = true
     }
 
     private fun telemetryToIndex(t: String): Int = when (t) {

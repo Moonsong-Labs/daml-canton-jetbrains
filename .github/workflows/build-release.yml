@@ -31,6 +31,20 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/test/webview/package-lock.json
+
+      - name: Verify Script Results in Chromium
+        working-directory: src/test/webview
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+
       - name: Build and verify plugin
         run: ./gradlew --no-daemon --no-configuration-cache test verifyPluginProjectConfiguration verifyPluginStructure buildPlugin
 

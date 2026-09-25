@@ -258,12 +258,11 @@ class TopologyGraphPanelInteractionTest {
     }
 
     @Test
-    fun `sync details overlay avoids covering running wires`() {
+    fun `sync details overlay avoids covering configured wires`() {
         val profile = SandboxDefaults.newProfile(null)
         val panel = renderedPanel(profile)
         val sync = profile.synchronizers.first()
 
-        panel.setRuntimeState(SandboxSessionStatus.RUNNING, emptyList(), 1)
         panel.select(TopologyGraphPanel.Selection.Synchronizer(sync.id))
         panel.setSelectionDetails(
             """
@@ -307,56 +306,6 @@ class TopologyGraphPanelInteractionTest {
         val tooltip = panel.getToolTipText(MouseEvent(panel, MouseEvent.MOUSE_MOVED, System.currentTimeMillis(), 0, 120, 236, 0, false))
 
         assertTrue(tooltip.orEmpty().contains("DARs sample-impl.dar, sample-interface.dar +1 more"))
-    }
-
-    @Test
-    fun `runtime flow only animates for running online topology`() {
-        val profile = SandboxDefaults.newProfile(null)
-        val participant = profile.participants.first()
-        val panel = renderedPanel(profile)
-
-        panel.setRuntimeState(SandboxSessionStatus.STOPPED, emptyList(), 1)
-        assertFalse(panel.isRuntimeFlowEnabledForTest())
-
-        panel.setRuntimeState(
-            SandboxSessionStatus.RUNNING,
-            listOf(HealthSnapshot(Endpoint(participant.id, participant.name, "json", "http://127.0.0.1:${participant.jsonPort}", participant.jsonPort), true, true, "ok")),
-            2
-        )
-        assertTrue(panel.isRuntimeFlowEnabledForTest())
-
-        panel.setRuntimeState(
-            SandboxSessionStatus.RUNNING,
-            listOf(HealthSnapshot(Endpoint(participant.id, participant.name, "json", "http://127.0.0.1:${participant.jsonPort}", participant.jsonPort), false, false, "down")),
-            3
-        )
-        assertFalse(panel.isRuntimeFlowEnabledForTest())
-    }
-
-    @Test
-    fun `runtime flow gets a temporary boost when activity changes`() {
-        val profile = SandboxDefaults.newProfile(null)
-        val panel = renderedPanel(profile)
-
-        panel.setRuntimeState(SandboxSessionStatus.RUNNING, emptyList(), 1)
-        val idleBoost = panel.flowBoostForTest()
-        panel.setRuntimeState(SandboxSessionStatus.RUNNING, emptyList(), 2)
-
-        assertTrue(panel.isRuntimeFlowEnabledForTest())
-        assertTrue("Activity should temporarily speed up the wire flow", panel.flowBoostForTest() > idleBoost)
-    }
-
-    @Test
-    fun `running runtime flow paints without an invalid dash phase`() {
-        val profile = SandboxDefaults.newProfile(null)
-        val panel = renderedPanel(profile)
-
-        panel.setRuntimeState(SandboxSessionStatus.RUNNING, emptyList(), 1)
-        repaint(panel)
-        panel.setRuntimeState(SandboxSessionStatus.RUNNING, emptyList(), 2)
-        repaint(panel)
-
-        assertTrue(panel.isRuntimeFlowEnabledForTest())
     }
 
     @Test

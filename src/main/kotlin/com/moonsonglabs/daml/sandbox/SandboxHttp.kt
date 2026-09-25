@@ -4,6 +4,12 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.net.http.WebSocket
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.TimeUnit
+import com.google.gson.JsonArray
+import com.google.gson.JsonParser
 import java.time.Duration
 
 data class SandboxHttpResponse(
@@ -13,12 +19,60 @@ data class SandboxHttpResponse(
     val durationMillis: Long = 0
 )
 
-class JsonApiClient {
+fun interface SandboxTransport {
+    fun request(method: String, baseUrl: String, path: String, token: String?, body: String?): SandboxHttpResponse
+}
+
+interface SandboxStreamingTransport : SandboxTransport {
+    fun activeContracts(baseUrl: String, token: String?, body: String): SandboxHttpResponse
+}
+
+class JsonApiClient : SandboxStreamingTransport {
     private val client = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(3))
         .build()
 
-    fun request(
+    /** A complete finite ACS stream avoids the HTTP list cap. Never return an unfinished snapshot. */
+    override fun activeContracts(baseUrl: String, token: String?, body: String): SandboxHttpResponse {
+        val completion = CompletableFuture<String>()
+        val rows = JsonArray()
+        val frame = StringBuilder()
+        var bytes = 0
+        val listener = object : WebSocket.Listener {
+            override fun onOpen(socket: WebSocket) { socket.request(1); socket.sendText(body, true) }
+            override fun onText(socket: WebSocket, text: CharSequence, last: Boolean): CompletionStage<*>? {
+                try {
+                    bytes += text.length
+                    check(bytes <= 50_000_000) { "ACS exceeds the inspector's 50 MB limit. Select fewer parties." }
+                    frame.append(text)
+                    if (last) {
+                        val value = JsonParser.parseString(frame.toString()); frame.setLength(0)
+                        if (value.isJsonObject && value.asJsonObject.has("code")) error(value.toString())
+                        if (value.isJsonArray) value.asJsonArray.forEach(rows::add) else rows.add(value)
+                    }
+                    socket.request(1)
+                } catch (error: Exception) { completion.completeExceptionally(error); socket.abort() }
+                return null
+            }
+            override fun onClose(socket: WebSocket, statusCode: Int, reason: String): CompletionStage<*>? {
+                if (statusCode == WebSocket.NORMAL_CLOSURE && frame.isEmpty()) completion.complete(rows.toString())
+                else completion.completeExceptionally(IllegalStateException("ACS stream closed ($statusCode): $reason"))
+                return null
+            }
+            override fun onError(socket: WebSocket, error: Throwable) { completion.completeExceptionally(error) }
+        }
+        val builder = client.newWebSocketBuilder().connectTimeout(Duration.ofSeconds(5))
+        if (!token.isNullOrBlank()) builder.subprotocols("daml.ws.auth", "jwt.token.$token")
+        else builder.subprotocols("daml.ws.auth")
+        val uri = URI.create(baseUrl.replaceFirst("http", "ws").trimEnd('/') + "/v2/state/active-contracts")
+        val started = System.nanoTime()
+        val socket = builder.buildAsync(uri, listener).get(10, TimeUnit.SECONDS)
+        return try {
+            SandboxHttpResponse(200, completion.get(30, TimeUnit.SECONDS), emptyMap(), (System.nanoTime() - started) / 1_000_000)
+        } finally { socket.abort() }
+    }
+
+    override fun request(
         method: String,
         baseUrl: String,
         path: String,

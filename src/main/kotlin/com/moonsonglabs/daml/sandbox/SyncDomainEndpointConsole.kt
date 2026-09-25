@@ -21,12 +21,9 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
 import java.awt.Dimension
-import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
-import java.awt.GridBagConstraints
-import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.RenderingHints
 import java.net.InetSocketAddress
@@ -352,6 +349,8 @@ internal class SyncDomainEndpointConsole(
     private var session: SandboxSessionState = SandboxSessionState()
     private var sync: SynchronizerNode? = null
     private var selectedPreset: SyncDiagnosticPreset? = null
+    private var requestSequence = 0L
+    private var inFlight = false
 
     init {
         name = "SyncDomainEndpointConsole"
@@ -367,9 +366,12 @@ internal class SyncDomainEndpointConsole(
     }
 
     fun setContext(profile: SandboxProfile, session: SandboxSessionState, syncId: String?) {
-        this.profile = profile
+        if ("${this.profile?.id}:${this.session.sessionId}:${sync?.id}" != "${profile.id}:${session.sessionId}:$syncId") {
+            requestSequence++; inFlight = false
+        }
+        this.profile = if (session.belongsTo(profile)) session.launchedProfile ?: profile else profile
         this.session = session
-        sync = syncId?.let(profile::synchronizer)
+        sync = syncId?.let(this.profile!!::synchronizer)
         renderSync()
         updateEnabledState()
     }
@@ -392,7 +394,11 @@ internal class SyncDomainEndpointConsole(
         presetList.foreground = TopologyGraphTheme.text
         presetList.fixedCellHeight = -1
         presetList.addListSelectionListener {
-            if (!it.valueIsAdjusting) selectedPreset = presetList.selectedValue
+            if (!it.valueIsAdjusting) {
+                requestSequence++; inFlight = false
+                selectedPreset = presetList.selectedValue
+                updateEnabledState()
+            }
         }
     }
 
@@ -414,12 +420,12 @@ internal class SyncDomainEndpointConsole(
 
     private fun body(): JComponent =
         JSplitPane(JSplitPane.HORIZONTAL_SPLIT, collection(), response()).apply {
+            ui = IdeSplitPaneUI()
             resizeWeight = 0.0
             dividerLocation = 250
             dividerSize = 8
             border = BorderFactory.createEmptyBorder()
             background = TopologyGraphTheme.canvas
-            ui = SyncDiagnosticSplitPaneUI()
         }
 
     private fun collection(): JComponent =
@@ -459,7 +465,7 @@ internal class SyncDomainEndpointConsole(
     }
 
     private fun updateEnabledState() {
-        val canRun = session.status == SandboxSessionStatus.RUNNING && sync != null
+        val canRun = profile?.let(session::canQuery) == true && sync != null && !inFlight
         sendButton.isEnabled = canRun
         sendButton.toolTipText = if (canRun) "Run diagnostic" else "Start sandbox and select a sync domain"
     }
@@ -468,17 +474,22 @@ internal class SyncDomainEndpointConsole(
         val currentProfile = profile ?: return
         val currentSync = sync ?: return
         val preset = selectedPreset ?: return
-        if (session.status != SandboxSessionStatus.RUNNING) {
+        if (!session.canQuery(currentProfile)) {
             showResult("Start sandbox to query synchronizer endpoints.", error = true)
             return
         }
         resultMeta.text = "Running ${preset.name}..."
         resultMeta.foreground = TopologyGraphTheme.warning
         resultArea.text = ""
+        inFlight = true
+        val request = ++requestSequence
         sendButton.isEnabled = false
+        val context = "${currentProfile.id}:${session.sessionId}:${currentSync.id}"
         backgroundExecutor {
             val response = runCatching { diagnosticRunner(currentProfile, currentSync, preset) }
             SwingUtilities.invokeLater {
+                if (request != requestSequence || "${profile?.id}:${session.sessionId}:${sync?.id}" != context) return@invokeLater
+                inFlight = false
                 updateEnabledState()
                 response.fold(
                     onSuccess = { renderResponse(it) },
@@ -622,31 +633,5 @@ private class SyncDiagnosticScrollBarUI : BasicScrollBarUI() {
             minimumSize = Dimension(0, 0)
             maximumSize = Dimension(0, 0)
             border = BorderFactory.createEmptyBorder()
-        }
-}
-
-private class SyncDiagnosticSplitPaneUI : javax.swing.plaf.basic.BasicSplitPaneUI() {
-    override fun createDefaultDivider(): javax.swing.plaf.basic.BasicSplitPaneDivider =
-        object : javax.swing.plaf.basic.BasicSplitPaneDivider(this) {
-            init {
-                border = BorderFactory.createEmptyBorder()
-                background = TopologyGraphTheme.canvas
-            }
-
-            override fun paint(g: Graphics) {
-                g.color = TopologyGraphTheme.canvas
-                g.fillRect(0, 0, width, height)
-                val g2 = g.create() as Graphics2D
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                g2.color = networkAlpha(TopologyGraphTheme.edge, 110)
-                if (orientation == JSplitPane.HORIZONTAL_SPLIT) {
-                    val x = width / 2 - 1
-                    g2.fillRoundRect(x, 8, 2, height - 16, 2, 2)
-                } else {
-                    val y = height / 2 - 1
-                    g2.fillRoundRect(8, y, width - 16, 2, 2, 2)
-                }
-                g2.dispose()
-            }
         }
 }

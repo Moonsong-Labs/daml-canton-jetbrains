@@ -6,10 +6,12 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBase
@@ -53,7 +55,26 @@ class ScriptResultsPanel(private val project: Project) : JPanel(BorderLayout()),
         border = javax.swing.BorderFactory.createEmptyBorder(4, 8, 4, 8)
     }
 
+    private var resource: DamlScriptResource.Reference? = null
+    private val sourceButton = javax.swing.JButton("Open source").apply {
+        isEnabled = false
+        addActionListener {
+            val source = resource ?: return@addActionListener
+            val file = LocalFileSystem.getInstance().findFileByPath(source.filePath) ?: return@addActionListener
+            val text = FileDocumentManager.getInstance().getDocument(file)?.text.orEmpty()
+            val offset = DamlScriptResource.findScripts(text).find { it.name == source.declaration }?.startOffset ?: 0
+            OpenFileDescriptor(project, file, offset).navigate(true)
+        }
+    }
+
+    fun setResourceUri(uri: String) {
+        resource = DamlScriptResource.parse(uri)
+        sourceButton.isEnabled = resource != null
+    }
+
     init {
+        ApplicationManager.getApplication().messageBus.connect(this).subscribe(com.intellij.ide.ui.LafManagerListener.TOPIC,
+            com.intellij.ide.ui.LafManagerListener { postToWebview(mapOf("command" to "set_appearance", "value" to appearance())) })
         if (!JBCefApp.isSupported()) {
             browser = null
             jsQuery = null
@@ -78,7 +99,9 @@ class ScriptResultsPanel(private val project: Project) : JPanel(BorderLayout()),
                     flushPendingMessages()
                 }
             }, b.cefBrowser)
-            add(titleLabel, BorderLayout.NORTH)
+            add(JPanel(BorderLayout()).apply {
+                add(titleLabel, BorderLayout.CENTER); add(sourceButton, BorderLayout.EAST)
+            }, BorderLayout.NORTH)
             add(b.component, BorderLayout.CENTER)
             loadInitialHtml()
         }
@@ -158,7 +181,8 @@ class ScriptResultsPanel(private val project: Project) : JPanel(BorderLayout()),
                 "selected" to s.selectedView,
                 "showArchived" to s.showArchived,
                 "showDetailedDisclosure" to s.showDetailedDisclosure,
-                "theme" to webviewThemeClass()
+                "theme" to webviewThemeClass(),
+                "appearance" to appearance()
             )
         )
         postToWebview(msg)
@@ -185,6 +209,18 @@ class ScriptResultsPanel(private val project: Project) : JPanel(BorderLayout()),
     private fun dispatchProgress(millisecondsPassed: Long) {
         val msg = mapOf("command" to "set_progress", "value" to millisecondsPassed)
         postToWebview(msg)
+    }
+
+    private fun appearance(): Map<String, String> {
+        fun color(key: String, fallback: Color): String {
+            val color = UIManager.getColor(key) ?: fallback
+            return "#%02x%02x%02x".format(color.red, color.green, color.blue)
+        }
+        val font = UIManager.getFont("Label.font") ?: titleLabel.font
+        return mapOf("theme" to webviewThemeClass(), "background" to color("Panel.background", Color.WHITE),
+            "panel" to color("Panel.background", Color.WHITE), "foreground" to color("Label.foreground", Color.BLACK),
+            "muted" to color("ContextHelp.foreground", if (webviewThemeClass() == "ide-dark") Color(0xAAB1BE) else Color(0x626C7A)), "border" to color("Component.borderColor", Color.GRAY),
+            "fontFamily" to font.family, "fontSize" to "${font.size}px")
     }
 
     private fun webviewThemeClass(): String {

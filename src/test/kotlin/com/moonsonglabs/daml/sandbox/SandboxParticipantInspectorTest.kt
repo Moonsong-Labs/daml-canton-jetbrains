@@ -5,15 +5,15 @@ import org.junit.Test
 
 class SandboxParticipantInspectorTest {
     @Test
-    fun `participant inspector prioritizes uploaded DARs`() {
+    fun `participant inspector prioritizes configured DARs`() {
         val profile = SandboxDefaults.newProfile(null).apply {
             darAssignments.add(DarAssignment("/workspace/.daml/dist/sample-settlement.dar", mutableListOf(participants[0].id)))
         }
 
         val text = participantInspectorText(profile, profile.participants[0], "not checked")
 
-        assertTrue(text.contains("Uploaded DARs:\nsample-settlement.dar"))
-        assertTrue(text.indexOf("Uploaded DARs:") < text.indexOf("Ledger API:"))
+        assertTrue(text.contains("Configured DARs:\nsample-settlement.dar"))
+        assertTrue(text.indexOf("Configured DARs:") < text.indexOf("Ledger API:"))
     }
 
     @Test

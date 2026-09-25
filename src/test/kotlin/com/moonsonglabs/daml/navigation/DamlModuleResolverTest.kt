@@ -86,7 +86,7 @@ template Strategy
 
         val offset = user.text.indexOf("IYieldSource", user.text.indexOf("interface instance"))
         val element = user.findElementAt(offset)!!
-        val expected = source.findElementAt(source.text.indexOf("IYieldSource"))!!
+        val expected = source.findElementAt(source.text.indexOf("IYieldSource"))!!.parent
         val symbol = DamlModuleNames.symbolAt(user.text, offset)!!
         val resolved = DamlModuleResolver.getInstance(project).resolveSymbolReference(symbol, user.virtualFile)
 
@@ -129,7 +129,7 @@ test manRaw =
 
         val symbolOffset = user.text.indexOf("IMandate", user.text.indexOf("@IMandate"))
         val markerOffset = user.text.indexOf("@IMandate")
-        val expected = source.findElementAt(source.text.indexOf("IMandate"))!!
+        val expected = source.findElementAt(source.text.indexOf("IMandate"))!!.parent
 
         assertEquals(expected, DamlModuleResolver.getInstance(project)
             .resolveSymbolReference(DamlModuleNames.symbolAt(user.text, symbolOffset)!!, user.virtualFile))
@@ -297,7 +297,7 @@ interface IYieldSource where
         val usageOffset = file.text.indexOf("sample", file.text.indexOf("controller"))
         val declarationOffset = file.text.indexOf("sample : Party")
         val usage = file.findElementAt(usageOffset)!!
-        val expected = file.findElementAt(declarationOffset)!!
+        val expected = file.findElementAt(declarationOffset)!!.parent
         val symbol = DamlModuleNames.symbolAt(file.text, usageOffset)!!
 
         assertEquals(expected, DamlModuleResolver.getInstance(project).resolveSymbolReference(symbol, file.virtualFile))

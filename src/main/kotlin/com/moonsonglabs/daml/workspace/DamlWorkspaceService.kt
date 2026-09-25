@@ -23,12 +23,16 @@ class DamlWorkspaceService(private val project: Project) {
         val found = linkedSetOf<Path>()
 
         if (isDamlWorkspace(root)) found.add(root)
-        Files.walk(root, 8).use { paths ->
-            paths
-                .filter { Files.isRegularFile(it) }
-                .filter { it.name == "daml.yaml" || it.name == "multi-package.yaml" }
-                .forEach { found.add(it.parent) }
-        }
+        Files.walkFileTree(root, emptySet(), 8, object : java.nio.file.SimpleFileVisitor<Path>() {
+            override fun preVisitDirectory(dir: Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
+                com.intellij.openapi.progress.ProgressManager.checkCanceled()
+                return if (dir != root && dir.name in ignoredPathNames) java.nio.file.FileVisitResult.SKIP_SUBTREE else java.nio.file.FileVisitResult.CONTINUE
+            }
+            override fun visitFile(file: Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
+                if (file.name == "daml.yaml" || file.name == "multi-package.yaml") found.add(file.parent)
+                return java.nio.file.FileVisitResult.CONTINUE
+            }
+        })
         return found
             .filter { shouldKeepWorkspace(root, it) }
             .sortedWith(compareBy<Path> { root.relativize(it).nameCount }.thenBy { it.toString() })
@@ -43,7 +47,7 @@ class DamlWorkspaceService(private val project: Project) {
     fun workspaceFor(file: VirtualFile?): Path? {
         val root = projectRoot() ?: return defaultWorkspace()
         val start = file?.let(::toPathOrNull)?.let { if (Files.isDirectory(it)) it else it.parent } ?: root
-        if (start.any { it.name in ignoredPathNames }) return defaultWorkspace()
+        if (isIgnoredPath(root, start)) return null
         var cursor: Path? = start
         while (cursor != null && cursor.normalize().startsWith(root.normalize())) {
             if (isDamlWorkspace(cursor)) return cursor
@@ -55,19 +59,21 @@ class DamlWorkspaceService(private val project: Project) {
     fun isDamlWorkspace(path: Path): Boolean =
         Files.exists(path.resolve("daml.yaml")) || Files.exists(path.resolve("multi-package.yaml"))
 
-    private fun shouldKeepWorkspace(root: Path, workspace: Path): Boolean {
-        val rel = runCatching { root.relativize(workspace).toString() }.getOrDefault("")
-        return rel.split(java.io.File.separatorChar).none {
-            it in ignoredPathNames
-        }
-    }
+    private fun shouldKeepWorkspace(root: Path, workspace: Path): Boolean = !isIgnoredPath(root, workspace)
 
     private fun toPathOrNull(file: VirtualFile): Path? =
         runCatching { file.toNioPath() }.getOrNull()
 
-    private val ignoredPathNames = setOf(".daml", "build", "out", "node_modules", ".gradle")
-
     companion object {
+        private val ignoredPathNames = setOf(".daml", "build", "out", "node_modules", ".gradle")
+
+        internal fun isIgnoredPath(root: Path, path: Path): Boolean {
+            val normalizedRoot = root.toAbsolutePath().normalize()
+            val normalizedPath = path.toAbsolutePath().normalize()
+            return normalizedPath.startsWith(normalizedRoot) &&
+                normalizedRoot.relativize(normalizedPath).any { it.name in ignoredPathNames }
+        }
+
         fun getInstance(project: Project): DamlWorkspaceService = project.service()
     }
 }

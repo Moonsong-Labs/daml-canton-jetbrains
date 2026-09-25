@@ -1,0 +1,26 @@
+module Main where
+
+import Daml.Script
+
+template Asset
+  with
+    owner : Party
+    peer : Party
+    number : Int
+  where
+    signatory owner
+    observer peer
+
+    nonconsuming choice Acknowledge : ()
+      controller peer
+      do pure ()
+
+-- Exercises the IDE Script Results execution model independently of the managed network.
+acceptance : Script ()
+acceptance = script do
+  alice <- allocateParty "Alice"
+  bob <- allocateParty "Bob"
+  cid <- submit alice do createCmd Asset with owner = alice; peer = bob; number = 1
+  submit bob do exerciseCmd cid Acknowledge
+  submit alice do exerciseCmd cid Archive
+  pure ()

@@ -34,3 +34,14 @@ jobs:
 
       - name: Test, verify, and package plugin
         run: ./gradlew --no-daemon --no-configuration-cache test verifyPluginProjectConfiguration verifyPluginStructure buildPlugin
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            build/reports/tests/
+            build/test-results/test/
+            build/reports/managed-sandbox/
+          if-no-files-found: ignore

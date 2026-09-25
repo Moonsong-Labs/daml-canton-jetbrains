@@ -30,58 +30,43 @@ class DamlParserDefinition : ParserDefinition {
     override fun getCommentTokens(): TokenSet = DamlTokenTypes.COMMENTS
     override fun getStringLiteralElements(): TokenSet = DamlTokenTypes.STRINGS
     override fun getWhitespaceTokens(): TokenSet = DamlTokenTypes.WHITESPACES
-    override fun createElement(node: ASTNode): PsiElement = ASTWrapperPsiElement(node)
+    override fun createElement(node: ASTNode): PsiElement =
+        if (node.elementType == DamlTokenTypes.SYMBOL_NAME) com.moonsonglabs.daml.lang.DamlNamedElement(node)
+        else ASTWrapperPsiElement(node)
     override fun createFile(viewProvider: FileViewProvider): PsiFile = DamlPsiFile(viewProvider)
 }
 
 private class DamlStructuralParser : PsiParser {
     override fun parse(root: IElementType, builder: PsiBuilder): ASTNode {
+        val model = com.moonsonglabs.daml.lang.DamlSourceModel.parse(builder.originalText.toString())
         val rootMarker = builder.mark()
-        var atLineStart = true
-
+        // Layout is derived from source offsets: PsiBuilder has already skipped whitespace.
+        val boundaries = model.lines.filter { it.tokens.isNotEmpty() }.associateBy { it.tokens.first().start }
         while (!builder.eof()) {
-            val tokenType = builder.tokenType
-            val tokenText = builder.tokenText.orEmpty()
-
-            if (tokenType == DamlTokenTypes.WHITE_SPACE) {
-                if (tokenText.contains('\n')) atLineStart = true
-                builder.advanceLexer()
-                continue
+            val line = boundaries[builder.currentOffset]
+            val marker = builder.mark()
+            val type = when (builder.tokenText) {
+                "module" -> DamlTokenTypes.MODULE_DECL
+                "import" -> DamlTokenTypes.IMPORT_DECL
+                "template" -> DamlTokenTypes.TEMPLATE_DECL
+                "interface" -> DamlTokenTypes.INTERFACE_DECL
+                "data", "newtype" -> DamlTokenTypes.DATA_DECL
+                "type" -> DamlTokenTypes.TYPE_DECL
+                "choice", "nonconsuming", "preconsuming", "postconsuming" -> DamlTokenTypes.CHOICE_DECL
+                else -> DamlTokenTypes.DECLARATION
             }
-
-            val declarationType = if (atLineStart) declarationType(tokenText) else null
-            if (declarationType != null) {
-                parseDeclarationHeading(builder, declarationType)
-                atLineStart = true
-                continue
-            }
-
-            builder.advanceLexer()
-            atLineStart = tokenText.contains('\n')
+            val end = line?.end ?: (builder.currentOffset + (builder.tokenText?.length ?: 1))
+            do {
+                val named = model.declaration(builder.currentOffset)
+                if (named != null && named.start == builder.currentOffset) {
+                    val name = builder.mark()
+                    builder.advanceLexer()
+                    name.done(DamlTokenTypes.SYMBOL_NAME)
+                } else builder.advanceLexer()
+            } while (!builder.eof() && builder.currentOffset < end)
+            marker.done(type)
         }
-
         rootMarker.done(root)
         return builder.treeBuilt
-    }
-
-    private fun declarationType(tokenText: String): IElementType? = when (tokenText) {
-        "module" -> DamlTokenTypes.MODULE_DECL
-        "import" -> DamlTokenTypes.IMPORT_DECL
-        "template" -> DamlTokenTypes.TEMPLATE_DECL
-        "choice" -> DamlTokenTypes.CHOICE_DECL
-        "interface" -> DamlTokenTypes.INTERFACE_DECL
-        "data", "newtype" -> DamlTokenTypes.DATA_DECL
-        "type" -> DamlTokenTypes.TYPE_DECL
-        else -> null
-    }
-
-    private fun parseDeclarationHeading(builder: PsiBuilder, elementType: IElementType) {
-        val marker = builder.mark()
-        while (!builder.eof()) {
-            val tokenText = builder.tokenText.orEmpty()
-            builder.advanceLexer()
-            if (tokenText.contains('\n')) break
-        }
-        marker.done(elementType)
     }
 }

@@ -1,11 +1,12 @@
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask
 
 fun properties(key: String) = providers.gradleProperty(key)
 
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "2.4.0"
-    id("org.jetbrains.intellij.platform") version "2.16.0"
+    id("org.jetbrains.intellij.platform") version "2.18.1"
 }
 
 group = properties("pluginGroup").get()
@@ -58,6 +59,12 @@ intellijPlatform {
 }
 
 tasks {
+    named<ProcessResources>("processResources") {
+        from(listOf("LICENSE", "NOTICE")) { into("META-INF") }
+    }
+    named<ProcessResources>("processTestResources") {
+        exclude("**/.daml/**", "**/.idea/**", "**/.canton-sandboxes/**")
+    }
     withType<JavaCompile> {
         sourceCompatibility = properties("javaVersion").get()
         targetCompatibility = properties("javaVersion").get()
@@ -71,7 +78,24 @@ tasks {
         distributionType = Wrapper.DistributionType.BIN
     }
 
-    val intellijTest = named<Test>("test")
+    val intellijTest = named<Test>("test") {
+        exclude("**/SandboxCantonIntegrationTest.class")
+    }
+    named<PrepareSandboxTask>("prepareTestSandbox") {
+        // WebStorm 2026.1.2's Vue LSP cannot locate its resources in the test classloader.
+        // DAML tests do not depend on Vue; keep this workaround limited to the test sandbox.
+        disabledPlugins.add("org.jetbrains.plugins.vue")
+    }
+    register<Test>("cantonIntegrationTest") {
+        group = "verification"
+        dependsOn("prepareTestSandbox", "instrumentTestCode")
+        description = "Required Canton 3.4.11 acceptance with a real DAR, two participants, two synchronizers, pagination and reassignment."
+        testClassesDirs = intellijTest.get().testClassesDirs
+        classpath = intellijTest.get().classpath
+        include("**/SandboxCantonIntegrationTest.class")
+        outputs.upToDateWhen { false }
+        testLogging.showStandardStreams = true
+    }
     register<Test>("dockerIntegrationTest") {
         group = "verification"
         description = "Runs optional Docker-backed managed Canton sandbox integration checks."

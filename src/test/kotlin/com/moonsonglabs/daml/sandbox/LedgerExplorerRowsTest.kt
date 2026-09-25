@@ -10,16 +10,14 @@ class LedgerExplorerRowsTest {
     fun `maps active contracts and events into explorer activity rows`() {
         val rows = LedgerExplorerRows.from(snapshot())
 
-        assertEquals(listOf("Archived", "Active", "Created", "Active"), rows.map { it.kind })
+        assertEquals(listOf("Archived", "Created", "Active"), rows.map { it.kind })
         val active = rows.first { it.kind == "Active" && it.contractId == "00active" }
         assertEquals("PublicSettlement", active.templateName)
         assertEquals("global", active.syncName)
         assertEquals(listOf("BridgePublic::party", "Operator::party"), active.parties)
         assertEquals("sample-settlement", active.packageName)
         assertEquals(mapOf("amount" to "42.0"), active.argumentFields)
-        val activeFromHistory = rows.first { it.kind == "Active" && it.contractId == "00created" }
-        assertEquals("PrivateOffer", activeFromHistory.templateName)
-        assertEquals("privateSync", activeFromHistory.syncName)
+        assertTrue(rows.none { it.kind == "Active" && it.contractId == "00created" })
     }
 
     @Test
@@ -67,7 +65,7 @@ class LedgerExplorerRowsTest {
             ExplorerFilterState(syncDomains = emptySet(), parties = emptySet(), kinds = setOf("Active", "Created", "Archived"))
         )
 
-        assertEquals(4, visible.size)
+        assertEquals(3, visible.size)
     }
 
     private fun snapshot(): LedgerExplorerSnapshot =

@@ -19,7 +19,6 @@ import com.moonsonglabs.daml.workspace.DamlWorkspaceService
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
-import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
@@ -31,8 +30,8 @@ import java.awt.Insets
 import java.awt.RenderingHints
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
-import java.nio.file.Files
 import java.nio.file.Path
+import java.util.UUID
 import javax.swing.BorderFactory
 import javax.swing.DefaultListCellRenderer
 import javax.swing.DefaultListModel
@@ -41,13 +40,11 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.JPanel
-import javax.swing.JScrollBar
 import javax.swing.JScrollPane
 import javax.swing.JSplitPane
 import javax.swing.ListSelectionModel
 import javax.swing.SwingUtilities
 import javax.swing.border.AbstractBorder
-import javax.swing.plaf.basic.BasicScrollBarUI
 
 internal enum class SandboxEndpointRisk {
     READ,
@@ -102,12 +99,13 @@ internal object SandboxEndpointCatalog {
         profile: SandboxProfile,
         participant: ParticipantNode,
         ledgerEnd: Long = 0L,
-        projectRoot: Path? = null
+        projectRoot: Path? = null,
+        resolvedParties: List<String>? = null
     ): String =
         when (preset.id) {
             "active-contracts" -> gson.toJson(JsonObject().apply {
                 addProperty("activeAtOffset", ledgerEnd)
-                add("eventFormat", eventFormat(profile, participant, projectRoot))
+                add("eventFormat", eventFormat(profile, participant, projectRoot, resolvedParties))
             })
             "updates" -> gson.toJson(JsonObject().apply {
                 addProperty("beginExclusive", 0)
@@ -115,7 +113,7 @@ internal object SandboxEndpointCatalog {
                 add("updateFormat", JsonObject().apply {
                     add("includeTransactions", JsonObject().apply {
                         addProperty("transactionShape", "TRANSACTION_SHAPE_ACS_DELTA")
-                        add("eventFormat", eventFormat(profile, participant, projectRoot))
+                        add("eventFormat", eventFormat(profile, participant, projectRoot, resolvedParties))
                     })
                 })
             })
@@ -128,9 +126,9 @@ internal object SandboxEndpointCatalog {
                     addProperty("synchronizerId", "<full-synchronizer-id>")
                 }
             })
-            "submit-wait", "async-submit" -> gson.toJson(commandEnvelope(preset, profile, participant, projectRoot))
+            "submit-wait", "async-submit" -> gson.toJson(commandEnvelope(preset, profile, participant, projectRoot, resolvedParties))
             "submit-transaction" -> gson.toJson(JsonObject().apply {
-                add("commands", commandEnvelope(preset, profile, participant, projectRoot))
+                add("commands", commandEnvelope(preset, profile, participant, projectRoot, resolvedParties))
             })
             else -> ""
         }
@@ -146,53 +144,29 @@ internal object SandboxEndpointCatalog {
         runCatching { gson.toJson(JsonParser.parseString(body)) }
             .getOrElse { body }
 
-    fun parties(profile: SandboxProfile, participant: ParticipantNode, projectRoot: Path? = null): List<String> =
-        allocatedPartyIds(profile, participant, projectRoot)
-            .ifEmpty {
-                profile.partyAllocations
-                    .filter { it.participantId == participant.id }
-                    .map { it.partyHint }
-                    .distinct()
-            }
-            .ifEmpty { listOf("<party-id>") }
+    fun parties(profile: SandboxProfile, participant: ParticipantNode, projectRoot: Path? = null): List<String> = listOf("<select-party>")
 
-    private fun allocatedPartyIds(profile: SandboxProfile, participant: ParticipantNode, projectRoot: Path?): List<String> {
-        val root = generatedRoot(profile, projectRoot)
-        val path = root.resolve("participants.json")
-        if (!Files.isRegularFile(path)) return emptyList()
-        val hints = profile.partyAllocations
-            .filter { it.participantId == participant.id }
-            .map { it.partyHint }
-            .distinct()
-        return runCatching {
-            val json = JsonParser.parseString(Files.readString(path)).asJsonObject
-            json.getAsJsonObject("party_participants")
-                ?.entrySet()
-                ?.asSequence()
-                ?.filter { it.value.asString == participant.id || it.value.asString == participant.name }
-                ?.map { it.key }
-                ?.filter { party -> hints.isEmpty() || hints.any { hint -> party == hint || party.startsWith("$hint::") } }
-                ?.sorted()
-                ?.toList()
-                .orEmpty()
-        }.getOrDefault(emptyList())
+    fun freshSubmission(method: String, path: String, body: String?): String? {
+        if (method.uppercase() != "POST" || (!path.startsWith("/v2/commands/") || !path.contains("/submit")) || body.isNullOrBlank()) return body
+        val json = JsonParser.parseString(body).asJsonObject
+        val commands = (json.get("commands")?.takeIf { it.isJsonObject } ?: json.get("reassignmentCommands"))?.asJsonObject ?: json
+        commands.addProperty("commandId", "cmd-${UUID.randomUUID()}")
+        return gson.toJson(json)
     }
-
-    private fun generatedRoot(profile: SandboxProfile, projectRoot: Path?): Path =
-        SandboxPaths.generatedRoot(profile, projectRoot)
 
     private fun commandEnvelope(
         preset: SandboxEndpointPreset,
         profile: SandboxProfile,
         participant: ParticipantNode,
-        projectRoot: Path?
+        projectRoot: Path?,
+        resolvedParties: List<String>?
     ): JsonObject {
-        val parties = parties(profile, participant, projectRoot)
-        val actAs = JsonArray().apply { add(parties.first()) }
+        val parties = resolvedParties ?: parties(profile, participant, projectRoot)
+        val actAs = JsonArray().apply { add(parties.firstOrNull() ?: "<select-party>") }
         val readAs = JsonArray().apply { parties.drop(1).forEach(::add) }
         return JsonObject().apply {
             addProperty("userId", "participant_admin")
-            addProperty("commandId", "cmd-${participant.name}-${preset.id}")
+            addProperty("commandId", "cmd-${UUID.randomUUID()}")
             addProperty("workflowId", "managed-sandbox-console")
             add("actAs", actAs)
             add("readAs", readAs)
@@ -207,10 +181,10 @@ internal object SandboxEndpointCatalog {
         }
     }
 
-    private fun eventFormat(profile: SandboxProfile, participant: ParticipantNode, projectRoot: Path?): JsonObject =
+    private fun eventFormat(profile: SandboxProfile, participant: ParticipantNode, projectRoot: Path?, resolvedParties: List<String>?): JsonObject =
         JsonObject().apply {
             add("filtersByParty", JsonObject().apply {
-                parties(profile, participant, projectRoot).forEach { party ->
+                (resolvedParties ?: parties(profile, participant, projectRoot)).forEach { party ->
                     add(party, JsonObject().apply { add("cumulative", JsonArray()) })
                 }
             })
@@ -307,6 +281,16 @@ internal class ParticipantEndpointConsole(
     private var lastLedgerEnd: Long = 0
     private var openApiKey: String? = null
     private var openApiInFlightKey: String? = null
+    private data class RequestDraft(val method: String, val path: String, val body: String, val generated: Boolean)
+    private val drafts = mutableMapOf<String, RequestDraft>()
+    private var displayedDraftKey: String? = null
+    private var lastGeneratedDraft = RequestDraft("", "", "", generated = true)
+    private var requestSequence = 0L
+    private var requestInFlight = false
+    private var knownParties = emptyList<SandboxParty>()
+    private var chosenParties: List<String>? = null
+    private var partiesLoading = false
+    private val partiesButton = consoleButton("Choose parties…") { chooseParties() }
     private val writeConfirmations = mutableSetOf<String>()
 
     init {
@@ -324,19 +308,67 @@ internal class ParticipantEndpointConsole(
     }
 
     fun setContext(profile: SandboxProfile, session: SandboxSessionState, participantId: String?) {
-        val previousKey = "${this.profile?.id}:${this.session.status}:${participant?.id}"
-        this.profile = profile
+        val previousKey = contextKey()
+        this.profile = if (session.belongsTo(profile)) session.launchedProfile ?: profile else profile
         this.session = session
-        participant = participantId
-            ?.let(profile::participant)
-            ?: participant?.id?.let(profile::participant)
-            ?: profile.participants.firstOrNull()
-        val nextKey = "${profile.id}:${session.status}:${participant?.id}"
-        if (previousKey != nextKey) writeConfirmations.clear()
+        val effective = this.profile!!
+        participant = participantId?.let(effective::participant) ?: participant?.id?.let(effective::participant) ?: effective.participants.firstOrNull()
+        if (previousKey != contextKey()) {
+            requestSequence++; requestInFlight = false; partiesLoading = false
+            lastLedgerEnd = 0; knownParties = emptyList(); chosenParties = null
+            writeConfirmations.clear(); openApiKey = null; openApiInFlightKey = null
+            updateRequestFromPreset()
+        }
         renderParticipant()
-        updateRequestFromPreset()
         updateEnabledState()
         fetchOpenApiIfAvailable()
+        discoverParties()
+    }
+
+    private fun contextKey(): String = "${profile?.id}:${session.sessionId}:${participant?.id}:${session.status}"
+
+    private fun isGeneratedDraft(): Boolean =
+        methodField.text == lastGeneratedDraft.method && pathField.text == lastGeneratedDraft.path && bodyArea.text == lastGeneratedDraft.body
+
+    private fun rememberDraft() {
+        displayedDraftKey?.let { drafts[it] = RequestDraft(methodField.text, pathField.text, bodyArea.text, isGeneratedDraft()) }
+    }
+
+    private fun discoverParties(force: Boolean = false) {
+        val current = profile ?: return
+        val node = participant ?: return
+        if (!session.canQuery(current) || partiesLoading || (!force && knownParties.isNotEmpty())) return
+        if (!force && selectedPreset?.id !in setOf("active-contracts", "updates", "submit-wait", "submit-transaction", "async-submit")) return
+        val context = contextKey()
+        val endpoint = EndpointBuilder.participantEndpoints(current).first { it.nodeId == node.id && it.kind == "json" }
+        val token = tokenField.text.trim().takeIf { it.isNotBlank() }
+        partiesLoading = true
+        backgroundExecutor {
+            val result = runCatching { SandboxParties.fetch(SandboxTransport { method, _, path, bearer, body -> requestSender(endpoint, method, path, bearer, body) }, endpoint.url, token) }
+            runOnEdt {
+                if (contextKey() != context) return@runOnEdt
+                partiesLoading = false
+                result.onSuccess { parties ->
+                    knownParties = parties
+                    chosenParties = parties.filter { it.local }.map { it.id }
+                    partiesButton.text = "Parties (${chosenParties.orEmpty().size})…"
+                    if (isGeneratedDraft()) {
+                        drafts.remove(displayedDraftKey); displayedDraftKey = null
+                        updateRequestFromPreset()
+                    }
+                }.onFailure { metadataLabel.text = "Party discovery failed: ${it.message}" }
+            }
+        }
+    }
+
+    private fun chooseParties() {
+        if (knownParties.isEmpty()) { discoverParties(force = true); return }
+        val list = JBList<String>(*knownParties.map { it.id }.toTypedArray())
+        list.selectedIndices = knownParties.indices.filter { knownParties[it].id in chosenParties.orEmpty() }.toIntArray()
+        if (javax.swing.JOptionPane.showConfirmDialog(this, javax.swing.JScrollPane(list), "Parties for this request", javax.swing.JOptionPane.OK_CANCEL_OPTION) != javax.swing.JOptionPane.OK_OPTION) return
+        chosenParties = list.selectedValuesList
+        drafts.remove(displayedDraftKey); displayedDraftKey = null
+        updateRequestFromPreset()
     }
 
     fun selectedParticipantNameForTest(): String? = participant?.name
@@ -358,8 +390,11 @@ internal class ParticipantEndpointConsole(
         presetList.fixedCellHeight = -1
         presetList.addListSelectionListener {
             if (!it.valueIsAdjusting) {
+                rememberDraft()
                 selectedPreset = presetList.selectedValue
+                displayedDraftKey = null
                 updateRequestFromPreset()
+                discoverParties()
             }
         }
     }
@@ -385,12 +420,13 @@ internal class ParticipantEndpointConsole(
 
     private fun consoleBody(): JComponent =
         JSplitPane(JSplitPane.HORIZONTAL_SPLIT, endpointCollection(), requestResponse()).apply {
+            ui = IdeSplitPaneUI()
             resizeWeight = 0.0
             dividerLocation = 260
             dividerSize = 8
             border = BorderFactory.createEmptyBorder()
             background = TopologyGraphTheme.canvas
-            ui = EndpointSplitPaneUI()
+
         }
 
     private fun endpointCollection(): JComponent =
@@ -402,12 +438,13 @@ internal class ParticipantEndpointConsole(
 
     private fun requestResponse(): JComponent =
         JSplitPane(JSplitPane.VERTICAL_SPLIT, requestEditor(), responseViewer()).apply {
+            ui = IdeSplitPaneUI()
             resizeWeight = 0.46
             dividerLocation = 260
             dividerSize = 8
             border = BorderFactory.createEmptyBorder()
             background = TopologyGraphTheme.canvas
-            ui = EndpointSplitPaneUI()
+
         }
 
     private fun requestEditor(): JComponent =
@@ -425,6 +462,7 @@ internal class ParticipantEndpointConsole(
                     maximumSize = Dimension(120, 32)
                 }, y++)
                 addRow("Path", pathField.styledTextField(), y++)
+                addRow("Parties", partiesButton, y++)
                 addRow("Token", tokenField.styledTextField().apply { toolTipText = "Optional Authorization: Bearer token" }, y++)
                 addRow("Headers", themedScroll(headersArea), y++, weighty = 0.18)
                 addRow("Body", themedScroll(bodyArea), y, weighty = 1.0)
@@ -470,8 +508,11 @@ internal class ParticipantEndpointConsole(
 
     private fun updateRequestFromPreset() {
         val preset = selectedPreset ?: return
+        rememberDraft()
         val currentProfile = profile
         val currentParticipant = participant
+        displayedDraftKey = "${currentProfile?.id}:${currentParticipant?.id}:${preset.id}"
+        val saved = drafts[displayedDraftKey]?.takeUnless { it.generated }
         methodField.text = preset.method
         pathField.text = preset.path
         bodyArea.text = if (currentProfile != null && currentParticipant != null) {
@@ -480,11 +521,13 @@ internal class ParticipantEndpointConsole(
                 currentProfile,
                 currentParticipant,
                 lastLedgerEnd,
-                DamlWorkspaceService.getInstance(project).projectRoot()
+                DamlWorkspaceService.getInstance(project).projectRoot(), chosenParties
             )
         } else {
             ""
         }
+        lastGeneratedDraft = RequestDraft(methodField.text, pathField.text, bodyArea.text, generated = true)
+        if (saved != null) { methodField.text = saved.method; pathField.text = saved.path; bodyArea.text = saved.body }
         bodyArea.caretPosition = 0
         responseMeta.foreground = TopologyGraphTheme.detail
         updateHeadersPreview()
@@ -500,7 +543,7 @@ internal class ParticipantEndpointConsole(
     }
 
     private fun updateEnabledState() {
-        val canSend = session.status == SandboxSessionStatus.RUNNING && participant != null
+        val canSend = profile?.let(session::canQuery) == true && participant != null && !requestInFlight
         sendButton.isEnabled = canSend
         sendButton.toolTipText = if (canSend) "Send request" else "Start sandbox to send requests"
     }
@@ -511,7 +554,7 @@ internal class ParticipantEndpointConsole(
         val endpoint = EndpointBuilder.participantEndpoints(currentProfile)
             .firstOrNull { it.nodeId == currentParticipant.id && it.kind == "json" }
             ?: return showResponse("No JSON API endpoint configured for ${currentParticipant.name}.", error = true)
-        if (session.status != SandboxSessionStatus.RUNNING) {
+        if (!session.canQuery(currentProfile)) {
             showResponse("Start sandbox to send requests.", error = true)
             return
         }
@@ -530,20 +573,27 @@ internal class ParticipantEndpointConsole(
         responseArea.text = ""
         sendButton.isEnabled = false
         val token = tokenField.text.trim().takeIf { it.isNotBlank() }
-        val body = bodyArea.text.takeIf { method.uppercase() !in setOf("GET", "DELETE") }
+        val body = runCatching { SandboxEndpointCatalog.freshSubmission(method, path, bodyArea.text.takeIf { method.uppercase() !in setOf("GET", "DELETE") }) }
+            .getOrElse { showResponse("Invalid request JSON: ${it.message}", true); updateEnabledState(); return }
+        if (body?.contains("<select-party>") == true) { showResponse("Choose a runtime party before sending this request.", true); updateEnabledState(); return }
+        val context = contextKey()
+        val requestId = ++requestSequence
+        requestInFlight = true
         backgroundExecutor {
             val result = runCatching { requestSender(endpoint, method, path, token, body) }
             runOnEdt {
+                if (contextKey() != context || requestSequence != requestId) return@runOnEdt
+                requestInFlight = false
                 updateEnabledState()
                 result.fold(
-                    onSuccess = { renderResponse(it) },
+                    onSuccess = { renderResponse(it, path) },
                     onFailure = { showResponse("Request failed: ${it.message ?: it::class.java.simpleName}", error = true) }
                 )
             }
         }
     }
 
-    private fun renderResponse(response: SandboxHttpResponse) {
+    private fun renderResponse(response: SandboxHttpResponse, requestPath: String) {
         responseMeta.text = "HTTP ${response.status} • ${response.durationMillis} ms"
         responseMeta.foreground = if (response.status in 200..299) TopologyGraphTheme.syncBorder else Color(0xFF5C7A)
         responseArea.text = buildString {
@@ -557,7 +607,7 @@ internal class ParticipantEndpointConsole(
             appendLine(SandboxEndpointCatalog.prettyBody(response.body))
         }
         responseArea.caretPosition = 0
-        if (pathField.text.trim() == "/v2/state/ledger-end" && response.status in 200..299) {
+        if (requestPath == "/v2/state/ledger-end" && response.status in 200..299) {
             lastLedgerEnd = runCatching {
                 JsonParser.parseString(response.body).asJsonObject.get("offset").asLong
             }.getOrDefault(lastLedgerEnd)
@@ -574,7 +624,7 @@ internal class ParticipantEndpointConsole(
     private fun fetchOpenApiIfAvailable() {
         val currentProfile = profile ?: return
         val currentParticipant = participant ?: return
-        if (session.status != SandboxSessionStatus.RUNNING) {
+        if (!session.canQuery(currentProfile)) {
             metadataLabel.text = "Endpoint metadata: built-in"
             return
         }
@@ -582,11 +632,13 @@ internal class ParticipantEndpointConsole(
             .firstOrNull { it.nodeId == currentParticipant.id && it.kind == "json" }
             ?: return
         if (openApiKey == endpoint.url || openApiInFlightKey == endpoint.url) return
+        val context = contextKey()
         openApiInFlightKey = endpoint.url
         metadataLabel.text = "Endpoint metadata: loading /docs/openapi"
         backgroundExecutor {
             val response = runCatching { requestSender(endpoint, "GET", "/docs/openapi", null, null) }
             runOnEdt {
+                if (contextKey() != context) return@runOnEdt
                 openApiInFlightKey = null
                 response.onSuccess {
                     if (it.status in 200..299) {
@@ -615,10 +667,7 @@ internal class ParticipantEndpointConsole(
         JPanel(layout).apply {
             background = TopologyGraphTheme.panel
             foreground = TopologyGraphTheme.text
-            border = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(TopologyGraphTheme.panelBorder),
-                JBUI.Borders.empty(10)
-            )
+            border = JBUI.Borders.empty(8)
         }
 
     private fun sectionTitle(text: String): JLabel =
@@ -628,7 +677,7 @@ internal class ParticipantEndpointConsole(
         }
 
     private fun consoleButton(text: String, icon: javax.swing.Icon? = null, action: () -> Unit): JButton =
-        EndpointButton(text, icon).apply {
+        JButton(text, icon).apply {
             toolTipText = text
             addActionListener { action() }
         }
@@ -638,8 +687,7 @@ internal class ParticipantEndpointConsole(
             border = BorderFactory.createLineBorder(TopologyGraphTheme.panelBorder)
             viewport.background = TopologyGraphTheme.panel
             background = TopologyGraphTheme.panel
-            horizontalScrollBar.styleEndpointScrollBar()
-            verticalScrollBar.styleEndpointScrollBar()
+
         }
 
     private fun consoleArea(rows: Int): JBTextArea =
@@ -770,44 +818,6 @@ private class EndpointPresetCell(
     }
 }
 
-private class EndpointButton(text: String, icon: javax.swing.Icon?) : JButton(text, icon) {
-    init {
-        foreground = TopologyGraphTheme.text
-        background = TopologyGraphTheme.panel
-        isOpaque = false
-        isContentAreaFilled = false
-        isBorderPainted = false
-        isFocusPainted = false
-        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        border = JBUI.Borders.empty(5, 11)
-        margin = Insets(0, 0, 0, 0)
-    }
-
-    override fun getPreferredSize(): Dimension {
-        val size = super.getPreferredSize()
-        return Dimension(size.width.coerceAtLeast(34), 34)
-    }
-
-    override fun paintComponent(g: Graphics) {
-        val g2 = g.create() as Graphics2D
-        try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.color = when {
-                !isEnabled -> endpointAlpha(TopologyGraphTheme.panelBorder, 45)
-                model.isPressed -> endpointAlpha(TopologyGraphTheme.selected, 70)
-                model.isRollover -> endpointAlpha(TopologyGraphTheme.hover, 34)
-                else -> TopologyGraphTheme.panel
-            }
-            g2.fillRoundRect(0, 0, width - 1, height - 1, 14, 14)
-            g2.color = if (model.isRollover && isEnabled) TopologyGraphTheme.hover else TopologyGraphTheme.panelBorder
-            g2.drawRoundRect(0, 0, width - 1, height - 1, 14, 14)
-        } finally {
-            g2.dispose()
-        }
-        super.paintComponent(g)
-    }
-}
-
 private class EndpointRoundBorder(
     private val color: Color,
     private val radius: Int
@@ -829,50 +839,6 @@ private class EndpointRoundBorder(
             g2.dispose()
         }
     }
-}
-
-private class EndpointSplitPaneUI : javax.swing.plaf.basic.BasicSplitPaneUI() {
-    override fun createDefaultDivider(): javax.swing.plaf.basic.BasicSplitPaneDivider =
-        object : javax.swing.plaf.basic.BasicSplitPaneDivider(this) {
-            init {
-                border = BorderFactory.createEmptyBorder()
-                background = TopologyGraphTheme.canvas
-            }
-
-            override fun getPreferredSize(): Dimension = Dimension(8, 8)
-
-            override fun paint(g: Graphics) {
-                g.color = TopologyGraphTheme.canvas
-                g.fillRect(0, 0, width, height)
-                g.color = endpointAlpha(TopologyGraphTheme.participantBorder, 100)
-                if (height >= width) {
-                    g.fillRoundRect(width / 2 - 1, 8, 2, height - 16, 4, 4)
-                } else {
-                    g.fillRoundRect(8, height / 2 - 1, width - 16, 2, 4, 4)
-                }
-            }
-        }
-}
-
-private fun JScrollBar.styleEndpointScrollBar() {
-    unitIncrement = 18
-    preferredSize = Dimension(10, 10)
-    setUI(object : BasicScrollBarUI() {
-        override fun configureScrollBarColors() {
-            thumbColor = endpointAlpha(TopologyGraphTheme.participantBorder, 135)
-            trackColor = TopologyGraphTheme.canvas
-        }
-
-        override fun createDecreaseButton(orientation: Int): JButton = zeroButton()
-        override fun createIncreaseButton(orientation: Int): JButton = zeroButton()
-
-        private fun zeroButton(): JButton =
-            JButton().apply {
-                preferredSize = Dimension(0, 0)
-                minimumSize = Dimension(0, 0)
-                maximumSize = Dimension(0, 0)
-            }
-    })
 }
 
 private fun endpointAlpha(color: Color, alpha: Int): Color =

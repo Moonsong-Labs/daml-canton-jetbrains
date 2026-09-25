@@ -29,7 +29,9 @@ class SandboxProfileService(private val project: Project) : PersistentStateCompo
 
     data class State(
         var profiles: MutableList<SandboxProfile> = mutableListOf(),
-        var selectedProfileId: String = ""
+        var selectedProfileId: String = "",
+        var dismissedProfileIds: MutableList<String> = mutableListOf(),
+        var editedProfileIds: MutableList<String> = mutableListOf()
     )
 
     private var state = State()
@@ -79,6 +81,7 @@ class SandboxProfileService(private val project: Project) : PersistentStateCompo
     }
 
     fun upsert(profile: SandboxProfile) {
+        if (profile.id !in state.editedProfileIds) state.editedProfileIds.add(profile.id)
         normalizeProfile(profile)
         val index = state.profiles.indexOfFirst { it.id == profile.id }
         if (index >= 0) {
@@ -92,11 +95,16 @@ class SandboxProfileService(private val project: Project) : PersistentStateCompo
 
     fun createProfile(): SandboxProfile {
         val profile = SandboxDefaults.newProfile(DamlWorkspaceService.getInstance(project).projectRoot())
+        val names = profiles().map { it.name }.toSet()
+        profile.name = generateSequence(1) { it + 1 }.map { "Local network $it" }.first { it !in names }
         upsert(profile)
         return profile
     }
 
     fun deleteProfile(id: String) {
+        val session = SandboxSessionService.getInstance(project).snapshot()
+        require(session.profileId != id || (!session.ownsProcess && session.status != SandboxSessionStatus.STARTING)) { "Stop this sandbox before deleting its profile." }
+        state.dismissedProfileIds.add(id)
         state.profiles.removeIf { it.id == id }
         state.selectedProfileId = state.profiles.firstOrNull()?.id.orEmpty()
         ensureProfile()
@@ -123,16 +131,20 @@ class SandboxProfileService(private val project: Project) : PersistentStateCompo
     }
 
     private fun loadDetectedProfiles(force: Boolean = false) {
-        if (!force && detectedProfilesLoaded && state.profiles.any { !isDefaultManagedProfile(it) }) return
+        if (!force && detectedProfilesLoaded) return
         detectedProfilesLoaded = true
 
         val existingIds = state.profiles.map { it.id }.toSet()
         val selectedBefore = state.profiles.firstOrNull { it.id == state.selectedProfileId }
         val detected = detectedProfileFiles().mapNotNull { path ->
-            readDetectedProfile(path)?.let { DetectedProfile(path, inferredWorkspace(path), it) }
-        }.onEach { detectedProfile ->
-            normalizeDetectedProfile(detectedProfile.profile, detectedProfile.path, detectedProfile.workspace)
-        }.distinctBy(::detectedProfileKey)
+            runCatching {
+                readDetectedProfile(path)?.let {
+                    val detected = DetectedProfile(path, inferredWorkspace(path), it)
+                    normalizeDetectedProfile(it, path, detected.workspace)
+                    detected
+                }
+            }.onFailure { thisLogger().warn("Ignoring invalid sandbox profile at $path", it) }.getOrNull()
+        }.filter { it.profile.id !in state.dismissedProfileIds }.distinctBy(::detectedProfileKey)
         if (detected.isEmpty()) return
 
         detected.forEach { detectedProfile -> upsertDetected(detectedProfile.profile) }
@@ -183,9 +195,7 @@ class SandboxProfileService(private val project: Project) : PersistentStateCompo
         if (profile.id.isBlank()) {
             profile.id = path.parent?.fileName?.toString()?.takeIf { it.isNotBlank() } ?: SandboxDefaults.newProfile(null).id
         }
-        if (workspace != null) {
-            profile.workspacePath = resolveAgainst(workspace, profile.workspacePath.ifBlank { "." }).toString()
-        }
+        SandboxPaths.importPaths(profile, path, workspace, DamlWorkspaceService.getInstance(project).projectRoot())
         if (profile.workspacePath.isBlank()) {
             profile.workspacePath = workspace?.toString().orEmpty()
         }
@@ -211,7 +221,7 @@ class SandboxProfileService(private val project: Project) : PersistentStateCompo
             it.id == profile.id || (profile.generatedPath.isNotBlank() && it.generatedPath == profile.generatedPath)
         }
         if (index >= 0) {
-            state.profiles[index] = profile
+            if (state.profiles[index].id !in state.editedProfileIds) state.profiles[index] = profile
         } else {
             state.profiles.add(profile)
         }

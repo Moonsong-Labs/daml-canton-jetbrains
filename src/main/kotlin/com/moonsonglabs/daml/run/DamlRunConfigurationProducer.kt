@@ -5,7 +5,7 @@ import com.intellij.execution.actions.LazyRunConfigurationProducer
 import com.intellij.execution.configurations.ConfigurationTypeUtil
 import com.intellij.openapi.util.Ref
 import com.intellij.psi.PsiElement
-import com.intellij.psi.PsiFile
+import com.moonsonglabs.daml.scriptresults.DamlScriptResource
 import com.moonsonglabs.daml.DamlFileType
 import com.moonsonglabs.daml.workspace.DamlWorkspaceService
 
@@ -29,10 +29,11 @@ class DamlRunConfigurationProducer : LazyRunConfigurationProducer<DamlRunConfigu
                 configuration.name = "DAML Build"
             }
             psiFile.fileType === DamlFileType -> {
-                val script = findScriptName(psiFile)
+                val script = DamlScriptResource.scriptAt(psiFile.text, context.psiLocation?.textOffset ?: 0)
+                    ?.let { DamlScriptResource.qualifiedName(psiFile.text, it) }
                 configuration.command = if (script != null) DamlCommand.SCRIPT else DamlCommand.TEST
                 configuration.scriptName = script ?: ""
-                configuration.name = if (script != null) "DAML Script $script" else "DAML Test ${file.name}"
+                configuration.name = if (script != null) "CLI Run Script $script" else "DAML Test ${file.name}"
             }
             else -> return false
         }
@@ -41,14 +42,12 @@ class DamlRunConfigurationProducer : LazyRunConfigurationProducer<DamlRunConfigu
 
     override fun isConfigurationFromContext(configuration: DamlRunConfiguration, context: ConfigurationContext): Boolean {
         val file = context.psiLocation?.containingFile?.virtualFile ?: return false
+        if (configuration.command == DamlCommand.SCRIPT) {
+            val text = context.psiLocation?.containingFile?.text ?: return false
+            val script = DamlScriptResource.scriptAt(text, context.psiLocation?.textOffset ?: 0) ?: return false
+            return configuration.filePath == file.path && configuration.scriptName == DamlScriptResource.qualifiedName(text, script)
+        }
         return configuration.filePath == file.path || configuration.workspacePath == DamlWorkspaceService.getInstance(context.project).workspaceFor(file)?.toString()
     }
 
-    private fun findScriptName(file: PsiFile): String? {
-        val module = Regex("""(?m)^\s*module\s+([A-Za-z0-9_.']+)\s+where\b""")
-            .find(file.text)?.groupValues?.getOrNull(1)
-        val script = Regex("""(?m)^\s*([a-zA-Z_][\w']*)\s*(?:::[^\n]+)?=\s*script\b""")
-            .find(file.text)?.groupValues?.getOrNull(1) ?: return null
-        return if (module.isNullOrBlank()) script else "$module:$script"
-    }
 }

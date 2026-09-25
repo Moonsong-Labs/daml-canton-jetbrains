@@ -51,4 +51,25 @@ second = script do
             DamlScriptResource.uri("/tmp/My Project/Main.daml", "myScript")
         )
     }
+
+    @Test
+    fun `resolves encoded source path without including declaration or query separators`() {
+        val path = "/tmp/My Project/Pool + grant & tests/Pruebaé.daml"
+        assertEquals(path, DamlScriptResource.filePath(DamlScriptResource.uri(path, "testOne")))
+        assertNull(DamlScriptResource.filePath("daml://compiler?top-level-decl=testOne"))
+        assertNull(DamlScriptResource.filePath("daml://compiler?file=%XX"))
+        assertNull(DamlScriptResource.filePath("https://example.test/?file=/tmp/Test.daml"))
+    }
+
+    @Test
+    fun `parses resource title and source through the same encoded reference`() {
+        val path = "/tmp/Pool + grant & tests/Pruebaé.daml"
+        val name = "testWithApostrophe'"
+        val reference = DamlScriptResource.parse(DamlScriptResource.uri(path, name))!!
+        assertEquals(path, reference.filePath)
+        assertEquals(name, reference.declaration)
+        assertEquals("$name - Pruebaé.daml", reference.title)
+        assertEquals("Main.daml", DamlScriptResource.parse("daml://compiler?file=/tmp/Main.daml")?.title)
+        assertNull(DamlScriptResource.parse("daml://compiler?file=/tmp/Main.daml&top-level-decl=%XX"))
+    }
 }

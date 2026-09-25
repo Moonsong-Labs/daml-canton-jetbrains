@@ -20,7 +20,7 @@ class LedgerExplorerPanelVisualTest : BasePlatformTestCase() {
             project,
             sessions = SandboxSessionService.getInstance(project),
             profiles = profileService
-        ) {}
+        )
 
         try {
             panel.setProfile(profile)
@@ -123,7 +123,7 @@ class LedgerExplorerPanelVisualTest : BasePlatformTestCase() {
             project,
             sessions = SandboxSessionService.getInstance(project),
             profiles = profileService
-        ) {}
+        )
 
         try {
             panel.setProfile(profile)

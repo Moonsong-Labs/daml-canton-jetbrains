@@ -43,6 +43,7 @@ class DamlSettingsConfigurable(private val project: Project) : Configurable {
     }
 
     override fun disposeUIResources() {
+        component?.dispose()
         component = null
     }
 

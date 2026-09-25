@@ -103,6 +103,7 @@ class SyncDomainEndpointConsoleTest : BasePlatformTestCase() {
         SandboxSessionState(
             profileId = profile.id,
             status = SandboxSessionStatus.RUNNING,
+            sessionId = "test-session", ownsProcess = true, launchedProfile = profile.deepCopy(),
             endpoints = EndpointBuilder.all(profile)
         )
 

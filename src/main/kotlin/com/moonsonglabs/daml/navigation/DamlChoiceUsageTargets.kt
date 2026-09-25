@@ -5,6 +5,8 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.moonsonglabs.daml.DamlFileType
+import com.moonsonglabs.daml.lang.DamlNamedElement
+import com.moonsonglabs.daml.lang.DamlSourceModel
 
 internal data class DamlChoiceUsageTarget(
     val name: String,
@@ -18,24 +20,22 @@ internal object DamlChoiceUsageTargets {
         val file = element.containingFile ?: return null
         if (file.fileType !== DamlFileType) return null
 
-        targetNearRange(file, element.textRange)?.let { return it }
+        val model = DamlSourceModel.get(file)
+        targetNearRange(file, model, element.textRange)?.let { return it }
 
-        var current: PsiElement? = element
-        while (current != null && current != file) {
-            targetOnLine(file, current.textRange.startOffset)?.let { return it }
-            current = current.parent
-        }
+        targetOnLine(file, model, element.textRange.startOffset)?.let { return it }
 
         return null
     }
 
     fun fromFileOffset(file: PsiFile, offset: Int): DamlChoiceUsageTarget? {
         if (file.fileType !== DamlFileType) return null
-        targetNearOffset(file, offset)?.let { return it }
-        return targetOnLine(file, offset)
+        val model = DamlSourceModel.get(file)
+        targetNearOffset(file, model, offset)?.let { return it }
+        return targetOnLine(file, model, offset)
     }
 
-    private fun targetNearRange(file: PsiFile, range: TextRange?): DamlChoiceUsageTarget? {
+    private fun targetNearRange(file: PsiFile, model: DamlSourceModel, range: TextRange?): DamlChoiceUsageTarget? {
         if (range == null) return null
         val offsets = linkedSetOf(
             range.startOffset,
@@ -44,36 +44,37 @@ internal object DamlChoiceUsageTargets {
             range.endOffset - 1,
             range.endOffset,
         )
-        return offsets.firstNotNullOfOrNull { targetNearOffset(file, it) }
+        return offsets.firstNotNullOfOrNull { targetNearOffset(file, model, it) }
     }
 
-    private fun targetNearOffset(file: PsiFile, offset: Int): DamlChoiceUsageTarget? {
-        val text = file.text
+    private fun targetNearOffset(file: PsiFile, model: DamlSourceModel, offset: Int): DamlChoiceUsageTarget? {
+        val text = model.text
         if (text.isEmpty()) return null
         val clamped = offset.coerceIn(0, text.lastIndex)
         val offsets = linkedSetOf(clamped, clamped - 1, clamped + 1)
         return offsets.firstNotNullOfOrNull { candidate ->
-            if (candidate !in text.indices) null else DamlChoiceNames.declarationAt(text, candidate)?.toTarget(file)
+            model.tokenAt(candidate)?.let { model.declaration(it.start) }
+                ?.takeIf { it.kind == DamlSourceModel.Kind.CHOICE }?.toTarget(file)
         }
     }
 
-    private fun targetOnLine(file: PsiFile, offset: Int): DamlChoiceUsageTarget? {
-        val text = file.text
+    private fun targetOnLine(file: PsiFile, model: DamlSourceModel, offset: Int): DamlChoiceUsageTarget? {
+        val text = model.text
         if (text.isEmpty()) return null
         val clamped = offset.coerceIn(0, text.lastIndex)
         val lineStart = text.lastIndexOf('\n', clamped).let { if (it == -1) 0 else it + 1 }
         val lineEnd = text.indexOf('\n', clamped).let { if (it == -1) text.length else it }
-        return DamlChoiceNames.declarations(text)
+        return model.symbols
             .firstOrNull {
-                it.startOffset in lineStart until lineEnd &&
-                    clamped in lineStart..(it.startOffset + it.name.length)
+                it.kind == DamlSourceModel.Kind.CHOICE && it.start in lineStart until lineEnd &&
+                    clamped in lineStart..(it.start + it.name.length)
             }
             ?.toTarget(file)
     }
 
-    private fun DamlChoiceNames.ChoiceDeclaration.toTarget(file: PsiFile): DamlChoiceUsageTarget? {
+    private fun DamlSourceModel.Symbol.toTarget(file: PsiFile): DamlChoiceUsageTarget? {
         val virtualFile = file.virtualFile ?: return null
-        val element = file.findElementAt(startOffset) ?: return null
-        return DamlChoiceUsageTarget(name, virtualFile, startOffset, element)
+        val element = DamlNamedElement.at(file, start) ?: return null
+        return DamlChoiceUsageTarget(name, virtualFile, start, element)
     }
 }

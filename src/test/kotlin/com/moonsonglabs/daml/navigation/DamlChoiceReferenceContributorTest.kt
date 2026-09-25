@@ -11,7 +11,7 @@ class DamlChoiceReferenceContributorTest : BasePlatformTestCase() {
     fun testFindUsagesIncludesChoiceExerciseCalls() {
         val file = myFixture.configureByText(DamlFileType, privateSettlementSnippet)
         val declarationOffset = privateSettlementSnippet.indexOf("Accept :")
-        val declaration = file.findElementAt(declarationOffset)!!
+        val declaration = file.findElementAt(declarationOffset)!!.parent
 
         val usages = ReferencesSearch.search(declaration)
             .findAll()
@@ -25,7 +25,7 @@ class DamlChoiceReferenceContributorTest : BasePlatformTestCase() {
     fun testChoiceUsageReferenceResolvesToDeclaration() {
         val file = myFixture.configureByText(DamlFileType, privateSettlementSnippet)
         val usage = file.findElementAt(privateSettlementSnippet.indexOf("ApproveForPublicSettlement", privateSettlementSnippet.indexOf("acceptedCid")))!!
-        val declaration = file.findElementAt(privateSettlementSnippet.indexOf("ApproveForPublicSettlement :"))!!
+        val declaration = file.findElementAt(privateSettlementSnippet.indexOf("ApproveForPublicSettlement :"))!!.parent
 
         assertEquals(DamlTokenTypes.TYPE_NAME, usage.node.elementType)
         assertEquals("ApproveForPublicSettlement", usage.text)
@@ -82,7 +82,7 @@ template Sample
 """.trimIndent()
         )
 
-        val declaration = kycPolicy.findElementAt(kycPolicy.text.indexOf("CheckEligible :"))!!
+        val declaration = kycPolicy.findElementAt(kycPolicy.text.indexOf("CheckEligible :"))!!.parent
         val usageOffset = sample.text.indexOf("CheckEligible", sample.text.indexOf("exercise cfg.kycPolicyCid"))
 
         val references = ReferencesSearch.search(declaration).findAll()
@@ -138,7 +138,7 @@ template Sample
         )
 
         val headingKeyword = kycPolicy.findElementAt(kycPolicy.text.indexOf("nonconsuming"))!!
-        val declarationName = kycPolicy.findElementAt(kycPolicy.text.indexOf("CheckEligible :"))!!
+        val declarationName = kycPolicy.findElementAt(kycPolicy.text.indexOf("CheckEligible :"))!!.parent
         val usageOffset = sample.text.indexOf("CheckEligible", sample.text.indexOf("exercise cfg.kycPolicyCid"))
 
         assertEquals("CheckEligible", DamlChoiceUsageTargets.fromElement(headingKeyword)?.name)
@@ -212,7 +212,7 @@ testRoute = script do
 """.trimIndent()
         )
 
-        val declaration = sample.findElementAt(sample.text.indexOf("RouteDeposit :"))!!
+        val declaration = sample.findElementAt(sample.text.indexOf("RouteDeposit :"))!!.parent
         val usageOffset = test.text.indexOf("RouteDeposit", test.text.indexOf("exerciseCmd"))
 
         val references = ReferencesSearch.search(declaration).findAll()
@@ -250,8 +250,8 @@ testRoute = script do
   submit operator ${'$'} exerciseCmd sample0 V.RouteDeposit
 """.trimIndent()
         )
-        val firstDeclaration = first.findElementAt(first.text.indexOf("RouteDeposit :"))!!
-        val secondDeclaration = second.findElementAt(second.text.indexOf("RouteDeposit :"))!!
+        val firstDeclaration = first.findElementAt(first.text.indexOf("RouteDeposit :"))!!.parent
+        val secondDeclaration = second.findElementAt(second.text.indexOf("RouteDeposit :"))!!.parent
         val usageOffset = test.text.indexOf("RouteDeposit", test.text.indexOf("exerciseCmd"))
         val use = DamlChoiceNames.useAt(test.text, usageOffset)!!
 
@@ -282,7 +282,7 @@ template T
 
     fun testFindUsagesProviderAcceptsChoiceDeclarations() {
         val file = myFixture.configureByText(DamlFileType, privateSettlementSnippet)
-        val declaration = file.findElementAt(privateSettlementSnippet.indexOf("Accept :"))!!
+        val declaration = file.findElementAt(privateSettlementSnippet.indexOf("Accept :"))!!.parent
 
         val provider = DamlFindUsagesProvider()
 

@@ -14,7 +14,7 @@ import javax.swing.table.DefaultTableModel
 
 class LedgerExplorerPanelTest : BasePlatformTestCase() {
     fun `test explorer panel constructs in headless mode`() {
-        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project)) {}
+        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project))
 
         try {
             panel.setProfile(SandboxDefaults.newProfile(null))
@@ -27,7 +27,7 @@ class LedgerExplorerPanelTest : BasePlatformTestCase() {
     }
 
     fun `test filters update table and selection populates inspector`() {
-        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project)) {}
+        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project))
 
         try {
             val profile = SandboxDefaults.newProfile(null)
@@ -68,7 +68,7 @@ class LedgerExplorerPanelTest : BasePlatformTestCase() {
     }
 
     fun `test stopped empty state is deterministic`() {
-        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project)) {}
+        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project))
 
         try {
             panel.setProfile(SandboxDefaults.newProfile(null))
@@ -82,7 +82,7 @@ class LedgerExplorerPanelTest : BasePlatformTestCase() {
     }
 
     fun `test filter sidebar is collapsed by default`() {
-        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project)) {}
+        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project))
 
         try {
             panel.setProfile(SandboxDefaults.newProfile(null))
@@ -94,7 +94,7 @@ class LedgerExplorerPanelTest : BasePlatformTestCase() {
     }
 
     fun `test expanded sidebar omits duplicated category headers`() {
-        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project)) {}
+        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project))
 
         try {
             val profile = SandboxDefaults.newProfile(null)
@@ -113,14 +113,14 @@ class LedgerExplorerPanelTest : BasePlatformTestCase() {
     }
 
     fun `test switch filters update visible activity rows`() {
-        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project)) {}
+        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project))
 
         try {
             panel.setProfile(SandboxDefaults.newProfile(null))
-            panel.privateSet("selectedSegment", "Raw")
+            panel.privateSet("selectedSegment", "History")
             panel.privateField<DefaultListModel<String>>("partyModel").addElement("Operator")
             panel.privateField<JBList<String>>("partyList").selectedIndices = intArrayOf(1)
-            panel.privateSet("allRows", listOf(activityRow(), activityRow(kind = "Archived", contractId = "00archived")))
+            panel.privateSet("allRows", listOf(activityRow(kind = "Created"), activityRow(kind = "Archived", contractId = "00archived")))
 
             panel.applyFilters()
             assertEquals(2, panel.privateField<DefaultTableModel>("activityModel").rowCount)
@@ -133,7 +133,7 @@ class LedgerExplorerPanelTest : BasePlatformTestCase() {
     }
 
     fun `test explorer navigation selects participant and full activity segment`() {
-        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project)) {}
+        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project))
 
         try {
             val profile = SandboxDefaults.newProfile(null)
@@ -153,7 +153,7 @@ class LedgerExplorerPanelTest : BasePlatformTestCase() {
     }
 
     fun `test history segment includes created and archived rows but not active snapshot rows`() {
-        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project)) {}
+        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project))
 
         try {
             panel.setProfile(SandboxDefaults.newProfile(null))
@@ -177,8 +177,8 @@ class LedgerExplorerPanelTest : BasePlatformTestCase() {
         }
     }
 
-    fun `test active segment shows active contracts even when sidebar active toggle is off`() {
-        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project)) {}
+    fun `test active segment is independent of history filters`() {
+        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project))
 
         try {
             panel.setProfile(SandboxDefaults.newProfile(null))
@@ -186,7 +186,8 @@ class LedgerExplorerPanelTest : BasePlatformTestCase() {
             panel.privateField<DefaultListModel<String>>("partyModel").addElement("Operator")
             panel.privateField<JBList<String>>("partyList").selectedIndices = intArrayOf(1)
             panel.privateSet("allRows", listOf(activityRow()))
-            panel.privateField<Any>("activeSwitch").setPrivateSwitchSelected(false)
+            panel.privateField<Any>("eventsSwitch").setPrivateSwitchSelected(false)
+            panel.privateField<Any>("archivedSwitch").setPrivateSwitchSelected(false)
 
             panel.applyFilters()
 
@@ -197,7 +198,7 @@ class LedgerExplorerPanelTest : BasePlatformTestCase() {
     }
 
     fun `test timeline hover describes event and click selects table row`() {
-        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project)) {}
+        val panel = LedgerExplorerPanel(project, SandboxSessionService.getInstance(project))
 
         try {
             panel.setProfile(SandboxDefaults.newProfile(null))
@@ -220,6 +221,86 @@ class LedgerExplorerPanelTest : BasePlatformTestCase() {
             panel.dispose()
         }
     }
+
+    fun `test switching participant during first refresh permits a new request and ignores old completion`() {
+        val tasks = mutableListOf<() -> Unit>()
+        val profile = SandboxDefaults.newProfile(null).apply {
+            participants.add(SandboxDefaults.participant(2, portBase))
+        }
+        val panel = LedgerExplorerPanel(project, backgroundExecutor = { tasks += it },
+            snapshotLoader = { _, participant, _ -> snapshot(participant) })
+        try {
+            panel.setProfile(profile)
+            panel.privateSet("session", SandboxSessionState(profileId = profile.id,
+                sessionId = "refresh-test", status = SandboxSessionStatus.RUNNING,
+                ownsProcess = true, launchedProfile = profile.deepCopy()))
+            panel.refresh()
+            assertEquals(1, tasks.size)
+            val participants = panel.privateField<JBList<String>>("participantList")
+            participants.selectedIndex = 1
+            assertTrue(panel.privateField<javax.swing.JButton>("refreshButton").isEnabled)
+            panel.refresh()
+            assertEquals(2, tasks.size)
+
+            tasks[0]()
+            flushEdt()
+            assertNull(panel.privateField<LedgerExplorerSnapshot?>("currentSnapshot"))
+            assertTrue(panel.privateField<Boolean>("loading"))
+            tasks[1]()
+            flushEdt()
+            assertEquals(profile.participants[1].name,
+                panel.privateField<LedgerExplorerSnapshot>("currentSnapshot").participantName)
+            assertTrue(panel.privateField<javax.swing.JButton>("refreshButton").isEnabled)
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    fun `test navigation during refresh invalidates request even with no snapshot`() {
+        val tasks = mutableListOf<() -> Unit>()
+        val profile = SandboxDefaults.newProfile(null).apply {
+            participants.add(SandboxDefaults.participant(2, portBase))
+        }
+        val panel = LedgerExplorerPanel(project, backgroundExecutor = { tasks += it },
+            snapshotLoader = { _, participant, _ -> snapshot(participant) })
+        try {
+            panel.setProfile(profile)
+            panel.privateSet("session", SandboxSessionState(profileId = profile.id,
+                sessionId = "navigation-test", status = SandboxSessionStatus.RUNNING,
+                ownsProcess = true, launchedProfile = profile.deepCopy()))
+            panel.refresh()
+            SandboxExplorerNavigationService.getInstance(project).showParticipant(profile, profile.participants[1].id, refresh = true)
+            flushEdt()
+            assertEquals(2, tasks.size)
+            tasks[1]()
+            flushEdt()
+            tasks[0]()
+            flushEdt()
+            assertEquals(profile.participants[1].name,
+                panel.privateField<LedgerExplorerSnapshot>("currentSnapshot").participantName)
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    fun `test status label stays attached when filters are expanded and collapsed`() {
+        val panel = LedgerExplorerPanel(project)
+        try {
+            val label = panel.privateField<JLabel>("messageLabel")
+            val statusContainer = label.parent
+            for (expanded in listOf(true, false)) {
+                panel.privateSet("sidebarExpanded", expanded)
+                panel.privateMethod("updateSidebar").invoke(panel)
+                assertSame(statusContainer, label.parent)
+                assertTrue(SwingUtilities.isDescendingFrom(label, panel))
+            }
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    private fun snapshot(participant: String) = LedgerExplorerSnapshot(
+        participant, "http://localhost", 1, emptyList(), emptyList(), emptyList(), emptyList(), "[]", "[]", emptyList())
 
     private fun activityRow(kind: String = "Active", contractId: String = "00active", offset: Long = 5): ExplorerActivityRow =
         ExplorerActivityRow(
@@ -261,7 +342,8 @@ class LedgerExplorerPanelTest : BasePlatformTestCase() {
     }
 
     private fun flushEdt() {
-        if (!SwingUtilities.isEventDispatchThread()) SwingUtilities.invokeAndWait {}
+        if (SwingUtilities.isEventDispatchThread()) com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+        else SwingUtilities.invokeAndWait {}
     }
 
     private fun Container.containsLabel(text: String): Boolean =

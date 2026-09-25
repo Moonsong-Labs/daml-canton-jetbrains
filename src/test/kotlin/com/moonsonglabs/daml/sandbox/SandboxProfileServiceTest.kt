@@ -103,6 +103,29 @@ class SandboxProfileServiceTest : BasePlatformTestCase() {
         assertTrue(service.selectedProfile().participants.any { it.id == "auditor" })
     }
 
+    fun testDiscoveryPreservesDraftAndRemembersDismissedImport() {
+        val root = Path.of(project.basePath!!)
+        resetDetectedProfiles(root)
+        Files.createDirectories(root)
+        val file = root.resolve("managed-sandbox-profile.json")
+        val original = detectedProfileJson(root)
+        Files.writeString(file, original)
+        val service = SandboxProfileService.getInstance(project)
+        service.loadState(SandboxProfileService.State())
+        val draft = service.selectedProfile().deepCopy().apply { name = "My pending edits" }
+        service.upsert(draft)
+        service.refreshDetectedProfiles()
+        assertEquals("My pending edits", service.selectedProfile().name)
+        assertEquals(original, Files.readString(file))
+        service.deleteProfile(draft.id)
+        service.refreshDetectedProfiles()
+        assertFalse(service.profiles().any { it.id == draft.id })
+        assertEquals(original, Files.readString(file))
+        val persisted = service.state
+        service.loadState(persisted)
+        assertFalse(service.profiles().any { it.id == draft.id })
+    }
+
     private fun detectedProfileJson(root: Path): String =
         """
         {

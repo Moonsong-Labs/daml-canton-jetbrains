@@ -5,8 +5,6 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import java.nio.file.Files
-import java.nio.file.Path
 
 data class LedgerContractRow(
     val templateId: String,
@@ -33,7 +31,10 @@ data class LedgerEventRow(
     val packageName: String = "",
     val witnessParties: List<String>,
     val createArgument: Map<String, String> = emptyMap(),
-    val rawJson: String
+    val rawJson: String,
+    val sourceSynchronizerId: String = "",
+    val targetSynchronizerId: String = "",
+    val reassignmentId: String = ""
 )
 
 data class LedgerExplorerSnapshot(
@@ -46,66 +47,60 @@ data class LedgerExplorerSnapshot(
     val events: List<LedgerEventRow>,
     val rawActiveResponse: String,
     val rawUpdatesResponse: String,
-    val warnings: List<String>
+    val warnings: List<String>,
+    val historyThrough: Long = ledgerEnd,
+    val historyComplete: Boolean = true,
+    val inFlightContracts: List<LedgerEventRow> = emptyList(),
+    val knownParties: List<String> = parties
 )
 
 class SandboxLedgerExplorer(
-    private val client: JsonApiClient = JsonApiClient(),
-    private val projectRoot: Path? = null
+    private val client: SandboxTransport = JsonApiClient()
 ) {
-    fun fetch(profile: SandboxProfile, participant: ParticipantNode, token: String?): LedgerExplorerSnapshot {
-        val endpoint = EndpointBuilder.participantEndpoints(profile)
-            .firstOrNull { it.nodeId == participant.id && it.kind == "json" }
-            ?: error("No JSON API endpoint configured for ${participant.name}.")
+    private data class History(var through: Long = 0, var events: List<LedgerEventRow> = emptyList())
+    private val histories = mutableMapOf<String, History>()
 
-        val partiesResponse = requireOk(client.request("GET", endpoint.url, "/v2/parties", token, null), "/v2/parties")
-        val knownParties = parseParties(partiesResponse.body)
+    @Synchronized
+    fun fetch(profile: SandboxProfile, participant: ParticipantNode, token: String?, sessionId: String = "", selectedParties: Set<String>? = null): LedgerExplorerSnapshot {
+        val endpoint = EndpointBuilder.participantEndpoints(profile).first { it.nodeId == participant.id && it.kind == "json" }
+        val known = SandboxParties.fetch(client, endpoint.url, token)
+        val parties = known.filter { if (selectedParties == null) it.local else it.id in selectedParties }.map { it.id }
         val warnings = mutableListOf<String>()
-        val parties = resolvePartyIds(profile, participant, knownParties)
-
         if (parties.isEmpty()) {
-            warnings += "No parties were found for ${participant.name}. Allocate parties or refresh the running sandbox."
-            return LedgerExplorerSnapshot(
-                participantName = participant.name,
-                endpointUrl = endpoint.url,
-                ledgerEnd = 0,
-                parties = emptyList(),
-                activeContracts = emptyList(),
-                archivedContracts = emptyList(),
-                events = emptyList(),
-                rawActiveResponse = "[]",
-                rawUpdatesResponse = "[]",
-                warnings = warnings
-            )
+            return LedgerExplorerSnapshot(participant.name, endpoint.url, 0, parties, emptyList(), emptyList(), emptyList(), "[]", "[]",
+                listOf("No selected local parties. Allocate a party or select a known party."), knownParties = known.map { it.id })
         }
-
-        val ledgerEndResponse = requireOk(client.request("GET", endpoint.url, "/v2/state/ledger-end", token, null), "/v2/state/ledger-end")
-        val ledgerEnd = parseOffset(ledgerEndResponse.body)
+        val ledgerEnd = parseOffset(requireOk(client.request("GET", endpoint.url, "/v2/state/ledger-end", token, null), "ledger-end").body)
         val activeBody = activeContractsRequestBody(ledgerEnd, parties)
-        val updatesBody = updatesRequestBody(ledgerEnd, parties)
-        val activeResponse = requireOk(
-            client.request("POST", endpoint.url, "/v2/state/active-contracts", token, activeBody),
-            "/v2/state/active-contracts"
-        )
-        val updatesResponse = requireOk(
-            client.request("POST", endpoint.url, "/v2/updates?limit=200", token, updatesBody),
-            "/v2/updates"
-        )
-        val activeContracts = parseActiveContracts(activeResponse.body)
-        val events = parseUpdateEvents(updatesResponse.body)
-
-        return LedgerExplorerSnapshot(
-            participantName = participant.name,
-            endpointUrl = endpoint.url,
-            ledgerEnd = ledgerEnd,
-            parties = parties,
-            activeContracts = activeContracts,
-            archivedContracts = events.filter { it.kind == "Archived" },
-            events = events,
-            rawActiveResponse = prettyJson(activeResponse.body),
-            rawUpdatesResponse = prettyJson(updatesResponse.body),
-            warnings = warnings
-        )
+        val httpActive = client.request("POST", endpoint.url, "/v2/state/active-contracts", token, activeBody)
+        val activeResponse = requireOk(if (httpActive.status == 413 && client is SandboxStreamingTransport)
+            client.activeContracts(endpoint.url, token, activeBody) else httpActive, "active-contracts")
+        val key = "$sessionId:${profile.id}:${participant.id}:${endpoint.url}:${parties.sorted()}"
+        if (histories.size > 32) histories.clear()
+        val history = histories.getOrPut(key) { History() }
+        if (ledgerEnd < history.through) { history.through = 0; history.events = emptyList() }
+        var rawUpdates = "[]"
+        var complete = false
+        runCatching {
+            if (ledgerEnd == history.through) { complete = true; return@runCatching }
+            val response = requireOk(client.request("POST", endpoint.url, "/v2/updates?limit=200", token,
+                updatesRequestBody(ledgerEnd, parties, history.through)), "updates")
+            rawUpdates = response.body
+            val updates = JsonParser.parseString(rawUpdates).asJsonArray
+            val maxOffset = updates.mapNotNull { entry ->
+                entry.asJsonObject.obj("update")?.entrySet()?.firstOrNull()?.value?.asJsonObject?.obj("value")?.get("offset")?.asLong
+            }.maxOrNull() ?: history.through
+            check(updates.isEmpty || maxOffset > history.through) { "History page made no progress; refusing to skip updates." }
+            complete = updates.size() < 200 || maxOffset >= ledgerEnd
+            history.events = (history.events + parseUpdateEvents(rawUpdates)).distinctBy {
+                listOf(it.kind, it.contractId, it.offset, it.reassignmentId, it.rawJson)
+            }
+            history.through = if (complete) ledgerEnd else maxOffset
+        }.onFailure { warnings += "Current contracts loaded; history unavailable: ${it.message}" }
+        if (!complete) warnings += "History incomplete: loaded through participant offset ${history.through} of $ledgerEnd. Load more to continue."
+        return LedgerExplorerSnapshot(participant.name, endpoint.url, ledgerEnd, parties, parseActiveContracts(activeResponse.body),
+            history.events.filter { it.kind == LedgerActivityKind.ARCHIVED }, history.events, prettyJson(activeResponse.body), prettyJson(rawUpdates), warnings,
+            history.through, complete, parseInFlightContracts(activeResponse.body), known.map { it.id })
     }
 
     private fun requireOk(response: SandboxHttpResponse, path: String): SandboxHttpResponse {
@@ -121,21 +116,24 @@ class SandboxLedgerExplorer(
         return gson.toJson(root)
     }
 
-    internal fun updatesRequestBody(endInclusive: Long, parties: List<String>): String {
+    internal fun updatesRequestBody(endInclusive: Long, parties: List<String>, beginExclusive: Long = 0): String {
         val root = JsonObject()
-        root.addProperty("beginExclusive", 0)
+        root.addProperty("beginExclusive", beginExclusive)
         root.addProperty("endInclusive", endInclusive)
         val includeTransactions = JsonObject()
         includeTransactions.addProperty("transactionShape", "TRANSACTION_SHAPE_ACS_DELTA")
         includeTransactions.add("eventFormat", eventFormat(parties))
         val updateFormat = JsonObject()
         updateFormat.add("includeTransactions", includeTransactions)
+        updateFormat.add("includeReassignments", eventFormat(parties))
         root.add("updateFormat", updateFormat)
         return gson.toJson(root)
     }
 
     internal fun parseActiveContracts(body: String): List<LedgerContractRow> {
-        val root = JsonParser.parseString(body).asArrayOrNull() ?: return emptyList()
+        val parsed = JsonParser.parseString(body)
+        require(parsed.isJsonArray) { "Unexpected ledger response: expected a JSON array." }
+        val root = parsed.asJsonArray
         return root.mapNotNull { entry ->
             val active = entry.asJsonObject.obj("contractEntry")?.obj("JsActiveContract") ?: return@mapNotNull null
             val createdEnvelope = active.obj("createdEvent") ?: return@mapNotNull null
@@ -145,14 +143,25 @@ class SandboxLedgerExplorer(
     }
 
     internal fun parseUpdateEvents(body: String): List<LedgerEventRow> {
-        val root = JsonParser.parseString(body).asArrayOrNull() ?: return emptyList()
+        val parsed = JsonParser.parseString(body)
+        require(parsed.isJsonArray) { "Unexpected ledger response: expected a JSON array." }
+        val root = parsed.asJsonArray
         return root.flatMap { updateEnvelope ->
-            val transaction = updateEnvelope
-                .asJsonObject
-                .obj("update")
-                ?.obj("Transaction")
-                ?.obj("value")
-                ?: return@flatMap emptyList()
+            val update = updateEnvelope.asJsonObject.obj("update") ?: return@flatMap emptyList()
+            val reassignment = update.obj("Reassignment")?.obj("value")
+            if (reassignment != null) {
+                return@flatMap reassignment.array("events").mapNotNull { event ->
+                    val obj = event.asJsonObject
+                    val assigned = obj.obj("JsAssignmentEvent") ?: obj.obj("AssignedEvent")
+                    val unassigned = obj.obj("JsUnassignedEvent") ?: obj.obj("UnassignedEvent")
+                    when {
+                        assigned != null -> reassignmentRow(assigned.obj("value") ?: assigned, LedgerActivityKind.ASSIGNED, reassignment.string("offset"), assigned = true)
+                        unassigned != null -> reassignmentRow(unassigned.obj("value") ?: unassigned, LedgerActivityKind.UNASSIGNED, reassignment.string("offset"), assigned = false)
+                        else -> null
+                    }
+                }
+            }
+            val transaction = update.obj("Transaction")?.obj("value") ?: return@flatMap emptyList()
             val synchronizerId = transaction.string("synchronizerId")
             val transactionOffset = transaction.string("offset")
             transaction.array("events").flatMap { event ->
@@ -166,6 +175,27 @@ class SandboxLedgerExplorer(
                 }
             }
         }
+    }
+
+    internal fun parseInFlightContracts(body: String): List<LedgerEventRow> =
+        (JsonParser.parseString(body).asArrayOrNull() ?: JsonArray()).mapNotNull { entry ->
+            val contract = entry.asJsonObject.obj("contractEntry") ?: return@mapNotNull null
+            val assigned = contract.obj("JsIncompleteAssigned")?.obj("assignedEvent")
+            val unassigned = contract.obj("JsIncompleteUnassigned")?.obj("unassignedEvent")
+            when {
+                assigned != null -> reassignmentRow(assigned, LedgerActivityKind.IN_FLIGHT_ASSIGNMENT, "", assigned = true)
+                unassigned != null -> reassignmentRow(unassigned, LedgerActivityKind.IN_FLIGHT_UNASSIGNMENT, "", assigned = false)
+                else -> null
+            }
+        }
+
+    private fun reassignmentRow(event: JsonObject, kind: String, offset: String, assigned: Boolean): LedgerEventRow {
+        val created = event.obj("createdEvent")?.let { it.obj("CreatedEvent") ?: it }
+        val data = created ?: event
+        return LedgerEventRow(kind, data.string("templateId"), shortTemplate(data.string("templateId")),
+            data.string("contractId"), offset, if (assigned) event.string("target") else event.string("source"),
+            data.string("packageName"), data.stringArray("witnessParties"), data.obj("createArgument")?.stringMap().orEmpty(), prettyJson(gson.toJson(event)),
+            event.string("source"), event.string("target"), event.string("reassignmentId"))
     }
 
     private fun parseCreatedContract(event: JsonObject, synchronizerId: String, rawJson: String): LedgerContractRow =
@@ -186,7 +216,7 @@ class SandboxLedgerExplorer(
 
     private fun parseCreatedEvent(event: JsonObject, synchronizerId: String, transactionOffset: String, rawJson: String): LedgerEventRow =
         LedgerEventRow(
-            kind = "Created",
+            kind = LedgerActivityKind.CREATED,
             templateId = event.string("templateId"),
             templateName = shortTemplate(event.string("templateId")),
             contractId = event.string("contractId"),
@@ -200,7 +230,7 @@ class SandboxLedgerExplorer(
 
     private fun parseArchivedEvent(event: JsonObject, synchronizerId: String, transactionOffset: String, rawJson: String): LedgerEventRow =
         LedgerEventRow(
-            kind = "Archived",
+            kind = LedgerActivityKind.ARCHIVED,
             templateId = event.string("templateId"),
             templateName = shortTemplate(event.string("templateId")),
             contractId = event.string("contractId"),
@@ -227,63 +257,12 @@ class SandboxLedgerExplorer(
     private fun parseOffset(body: String): Long =
         JsonParser.parseString(body).asJsonObject.get("offset")?.asLong ?: 0L
 
-    private fun parseParties(body: String): List<KnownParty> =
-        JsonParser.parseString(body)
-            .asJsonObject
-            .array("partyDetails")
-            .map { KnownParty(it.asJsonObject.string("party"), it.asJsonObject.boolean("isLocal")) }
-
-    private fun resolvePartyIds(
-        profile: SandboxProfile,
-        participant: ParticipantNode,
-        knownParties: List<KnownParty>
-    ): List<String> {
-        val knownPartyIds = knownParties.map { it.party }.toSet()
-        val generatedParties = generatedPartyParticipantMap(profile)
-            .filterValues { it == participant.name || it == participant.id }
-            .keys
-            .filter { it in knownPartyIds }
-            .toList()
-        if (generatedParties.isNotEmpty()) return generatedParties.sorted()
-
-        val hints = profile.partyAllocations
-            .filter { it.participantId == participant.id }
-            .map { it.partyHint }
-            .distinct()
-        val fromHints = knownParties
-            .map { it.party }
-            .filter { party -> hints.any { hint -> party == hint || party.startsWith("$hint::") } }
-        if (fromHints.isNotEmpty()) return fromHints.sorted()
-
-        return knownParties
-            .filter { it.isLocal }
-            .map { it.party }
-            .sorted()
-    }
-
-    private fun generatedPartyParticipantMap(profile: SandboxProfile): Map<String, String> {
-        val root = generatedRoot(profile) ?: return emptyMap()
-        val path = root.resolve("participants.json")
-        if (!Files.isRegularFile(path)) return emptyMap()
-        return runCatching {
-            val json = JsonParser.parseString(Files.readString(path)).asJsonObject
-            json.obj("party_participants")
-                ?.entrySet()
-                ?.associate { it.key to it.value.asString }
-                ?: emptyMap()
-        }.getOrDefault(emptyMap())
-    }
-
-    private fun generatedRoot(profile: SandboxProfile): Path? =
-        SandboxPaths.generatedRoot(profile, projectRoot)
-
     private fun prettyJson(raw: String): String =
         runCatching { gson.toJson(JsonParser.parseString(raw)) }.getOrDefault(raw)
 
     private fun shortTemplate(templateId: String): String =
         templateId.substringAfterLast(':').ifBlank { templateId }
 
-    private data class KnownParty(val party: String, val isLocal: Boolean)
 
     companion object {
         private val gson = GsonBuilder().setPrettyPrinting().create()

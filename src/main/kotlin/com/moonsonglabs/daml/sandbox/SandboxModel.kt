@@ -75,7 +75,8 @@ data class SandboxProfile(
     var darAssignments: MutableList<DarAssignment> = mutableListOf(),
     var partyAllocations: MutableList<PartyAllocation> = mutableListOf(),
     var topologyPositions: MutableList<TopologyNodePosition> = mutableListOf(),
-    var generatedPath: String = ""
+    var generatedPath: String = "",
+    var schemaVersion: Int = 0
 ) {
     fun participant(id: String): ParticipantNode? = participants.firstOrNull { it.id == id }
     fun synchronizer(id: String): SynchronizerNode? = synchronizers.firstOrNull { it.id == id }
@@ -132,7 +133,8 @@ data class HealthSnapshot(
     val live: Boolean,
     val ready: Boolean,
     val message: String,
-    val timestampMillis: Long = System.currentTimeMillis()
+    val timestampMillis: Long = System.currentTimeMillis(),
+    val connectedSynchronizers: Set<String>? = null
 )
 
 data class SandboxGeneratedFiles(
@@ -221,21 +223,11 @@ object SandboxDefaults {
 
     fun ensureSharedSynchronizer(profile: SandboxProfile): SynchronizerNode {
         profile.synchronizers.firstOrNull { isSharedSynchronizer(it.id, it.name) }?.let {
-            it.id = SHARED_SYNCHRONIZER_ID
-            it.name = SHARED_SYNCHRONIZER_NAME
             return it
         }
 
-        val usedPorts = profile.synchronizers.flatMap {
-            listOf(it.sequencer.publicPort, it.sequencer.adminPort, it.mediator.adminPort)
-        }.toSet()
-        val portIndex = generateSequence(1) { it + 1 }
-            .first { index ->
-                val candidate = sharedSynchronizer(profile.portBase, index)
-                listOf(candidate.sequencer.publicPort, candidate.sequencer.adminPort, candidate.mediator.adminPort)
-                    .none { it in usedPorts }
-            }
-        val shared = sharedSynchronizer(profile.portBase, portIndex)
+        val shared = sharedSynchronizer(profile.portBase)
+        SandboxTopology.allocateSynchronizer(profile, shared)
         profile.synchronizers.add(0, shared)
         return shared
     }

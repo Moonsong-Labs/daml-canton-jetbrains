@@ -45,12 +45,11 @@ topLevelHelper party = pure ()
                 "DepositRequestState" to DamlStructureKind.DATA,
                 "DepositLock" to DamlStructureKind.NEWTYPE,
                 "DepositRequest" to DamlStructureKind.TEMPLATE,
-                "AcceptDeposit" to DamlStructureKind.CHOICE,
-                "RejectDeposit" to DamlStructureKind.CHOICE,
                 "topLevelHelper" to DamlStructureKind.FUNCTION
             ),
             structure.declarations.map { it.name to it.kind }
         )
+        assertEquals(listOf("operator", "AcceptDeposit", "RejectDeposit"), structure.declarations.first { it.name == "DepositRequest" }.children.map { it.name })
     }
 
     @Test

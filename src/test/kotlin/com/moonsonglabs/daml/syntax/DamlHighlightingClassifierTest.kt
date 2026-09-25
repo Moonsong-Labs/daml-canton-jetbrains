@@ -207,4 +207,42 @@ testDeposit = script do
     private fun assertRole(tokenText: String, start: Int, role: Role) {
         assertEquals(role, DamlHighlightingClassifier.roleAt(sample, start, tokenText))
     }
+
+    @Test
+    fun `colors functions in direct calls and higher order arguments`() {
+        val text = """
+module Functions where
+withdrawal : Int -> Int
+withdrawal amount = amount
+count : Int
+count = 2
+callbacks : [Int -> Int]
+callbacks = []
+direct = withdrawal count
+mapped = map withdrawal [count]
+field request = request.withdrawal
+shadow withdrawal = withdrawal
+""".trimIndent()
+        val roles = DamlHighlightingClassifier.classify(com.moonsonglabs.daml.lang.DamlSourceModel.parse(text))
+        assertEquals(Role.DECLARATION_NAME, roles[text.indexOf("withdrawal")])
+        assertEquals(Role.FUNCTION_CALL, roles[text.indexOf("withdrawal count")])
+        assertEquals(Role.FUNCTION_CALL, roles[text.indexOf("withdrawal [")])
+        assertEquals(Role.FIELD_NAME, roles[text.indexOf("withdrawal\nshadow")])
+        assertEquals(null, roles[text.lastIndexOf("withdrawal")])
+        assertEquals(null, roles[text.indexOf("count\nmapped")])
+    }
+
+    @Test
+    fun `recognizes untyped and local function definitions`() {
+        val text = """
+module Functions where
+double amount = amount * 2
+main = do
+  let helper amount = double amount
+  pure (map helper [double 1])
+""".trimIndent()
+        assertEquals(Role.FUNCTION_CALL, DamlHighlightingClassifier.roleAt(text, text.indexOf("double amount\n"), "double"))
+        assertEquals(Role.FUNCTION_CALL, DamlHighlightingClassifier.roleAt(text, text.indexOf("helper ["), "helper"))
+        assertEquals(Role.FUNCTION_CALL, DamlHighlightingClassifier.roleAt(text, text.indexOf("double 1"), "double"))
+    }
 }

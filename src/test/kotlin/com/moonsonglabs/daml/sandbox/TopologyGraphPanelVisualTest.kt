@@ -1,5 +1,6 @@
 package com.moonsonglabs.daml.sandbox
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.awt.BorderLayout
@@ -10,6 +11,8 @@ import java.nio.file.Path
 import javax.imageio.ImageIO
 import javax.swing.BorderFactory
 import javax.swing.JPanel
+import javax.swing.JList
+import javax.swing.SwingUtilities
 
 class TopologyGraphPanelVisualTest {
     @Test
@@ -68,6 +71,10 @@ class TopologyGraphPanelVisualTest {
 
     @Test
     fun `renders themed component palette screenshot`() {
+        SwingUtilities.invokeAndWait { renderComponentPalette() }
+    }
+
+    private fun renderComponentPalette() {
         val profile = SandboxDefaults.newProfile(null).apply {
             participants.add(SandboxDefaults.participant(2, portBase))
             synchronizers.add(SandboxDefaults.synchronizer(2, portBase))
@@ -93,7 +100,22 @@ class TopologyGraphPanelVisualTest {
         ImageIO.write(image, "png", output.toFile())
 
         assertTrue("Component palette screenshot was not written to $output", Files.isRegularFile(output))
-        assertTrue("Component palette screenshot appears blank", distinctColors(image) > 10)
+        val nodes = panel.components.filterIsInstance<JList<*>>().single()
+        val expectedLabels = profile.participants.map { "Participant · ${it.name}" } +
+            profile.synchronizers.map { "Synchronizer · ${it.name}" }
+        assertEquals(expectedLabels, (0 until nodes.model.size).map { nodes.model.getElementAt(it).toString() })
+        assertEquals(profile.participants.size, nodes.selectedIndex)
+        for (index in expectedLabels.indices) {
+            val cell = SwingUtilities.convertRectangle(nodes, nodes.getCellBounds(index, index), panel)
+            assertTrue("Row $index must be visible", cell.width > 0 && cell.height > 0 && image.width >= cell.x + cell.width && image.height >= cell.y + cell.height)
+            val background = image.getRGB(cell.x, cell.y)
+            // Native text can use only a foreground and background color without antialiasing.
+            // Check every row for rendered content instead of requiring a platform-specific palette.
+            assertTrue("Row $index (${expectedLabels[index]}) appears blank",
+                (cell.y until cell.y + cell.height).any { y ->
+                    (cell.x until cell.x + cell.width).any { x -> image.getRGB(x, y) != background }
+                })
+        }
     }
 
     @Test

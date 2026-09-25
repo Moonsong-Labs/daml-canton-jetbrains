@@ -6,17 +6,17 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.platform.lsp.api.LspServerManager
 import com.moonsonglabs.daml.lsp.DamlLspServerSupportProvider
 import com.moonsonglabs.daml.lsp.DamlServerInterface
+import com.moonsonglabs.daml.DamlNotifier
 import org.eclipse.lsp4j.DidCloseTextDocumentParams
 import org.eclipse.lsp4j.DidOpenTextDocumentParams
 import org.eclipse.lsp4j.TextDocumentIdentifier
 import org.eclipse.lsp4j.TextDocumentItem
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -43,6 +43,7 @@ class VirtualResourceManager(private val project: Project) : Disposable {
             progressMs = -1
         }
         applyOnEdt(uri) { panel ->
+            panel.setResourceUri(uri)
             panel.setTitle(titleFor(uri))
             panel.setProgress(-1)
             panel.setHtml(html)
@@ -55,6 +56,7 @@ class VirtualResourceManager(private val project: Project) : Disposable {
             if (ms <= 0) notes = emptyList()
         }
         applyOnEdt(uri) { panel ->
+            panel.setResourceUri(uri)
             panel.setTitle(titleFor(uri))
             panel.setProgress(ms)
         }
@@ -76,17 +78,17 @@ class VirtualResourceManager(private val project: Project) : Disposable {
     fun showResource(title: String, uri: String) {
         openVirtualResource(uri)
         ApplicationManager.getApplication().invokeLater {
+            if (project.isDisposed || activeUri != uri) return@invokeLater
             val tw = toolWindow() ?: return@invokeLater
             tw.show()
             val panel = panelOf(tw) ?: return@invokeLater
+            panel.setResourceUri(uri)
             panel.setTitle(title)
+            panel.clearResource()
             resources[uri]?.let {
                 if (it.html.isNotEmpty()) panel.setHtml(it.html)
                 it.notes.forEach(panel::setNote)
                 panel.setProgress(it.progressMs)
-            } ?: run {
-                panel.clearResource()
-                panel.setProgress(-1)
             }
         }
     }
@@ -98,8 +100,10 @@ class VirtualResourceManager(private val project: Project) : Disposable {
 
     private fun openVirtualResource(uri: String) {
         val previous = activeUri
-        if (previous == uri) return
+        // Play is an explicit retry. The server may have restarted since the last
+        // click and no longer know about this virtual document.
         activeUri = uri
+        resources.remove(uri)
         previous?.let(::closeVirtualResource)
         sendToTextDocumentService(uri, "open") { server ->
             if (activeUri == uri) {
@@ -124,10 +128,22 @@ class VirtualResourceManager(private val project: Project) : Disposable {
         block: (DamlServerInterface) -> Unit
     ) {
         if (project.isDisposed) return
+        val file = DamlScriptResource.filePath(uri)
+            ?.let { LocalFileSystem.getInstance().findFileByPath(it) }
+        if (file == null) {
+            thisLogger().warn("Cannot resolve source file to $operation DAML virtual resource $uri")
+            return
+        }
+        // Each daml.yaml has its own package environment. Broadcasting a test to sibling
+        // servers can overwrite a successful result with a partial, wrong-package failure.
         val servers = LspServerManager.getInstance(project)
             .getServersForProvider(DamlLspServerSupportProvider::class.java)
+            .filter { it.descriptor.isSupportedFile(file) }
         if (servers.isEmpty()) {
             thisLogger().warn("No DAML language server available to $operation virtual resource $uri")
+            if (operation == "open") {
+                DamlNotifier.warn(project, "DAML language server is not ready. Wait for it to start, then click Play again.")
+            }
             return
         }
 
@@ -163,22 +179,7 @@ class VirtualResourceManager(private val project: Project) : Disposable {
         return content.component as? ScriptResultsPanel
     }
 
-    private fun titleFor(uri: String): String {
-        // `daml://compiler?file=foo.daml&top-level-decl=bar`
-        val q = uri.substringAfter('?', "")
-        val params = q.split('&').mapNotNull {
-            val (k, v) = it.split('=', limit = 2).let { p -> if (p.size == 2) p else return@mapNotNull null }
-            URLDecoder.decode(k, StandardCharsets.UTF_8) to URLDecoder.decode(v, StandardCharsets.UTF_8)
-        }.toMap()
-        val decl = params["top-level-decl"]
-        val file = params["file"]?.substringAfterLast('/')
-        return when {
-            decl != null && file != null -> "$decl - $file"
-            decl != null -> decl
-            file != null -> file
-            else -> "DAML Script Results"
-        }
-    }
+    private fun titleFor(uri: String): String = DamlScriptResource.parse(uri)?.title ?: "DAML Script Results"
 
     companion object {
         fun getInstance(project: Project): VirtualResourceManager = project.service()

@@ -1,5 +1,7 @@
 package com.moonsonglabs.daml.sandbox
 
+import com.intellij.ui.JBColor
+import com.intellij.util.ui.UIUtil
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Cursor
@@ -26,23 +28,24 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 internal object TopologyGraphTheme {
-    val canvas = Color(0x0B1020)
-    val panel = Color(0x111722)
-    val panelBorder = Color(0x26344A)
-    val grid = Color(0x24324A)
-    val edge = Color(0x6DD7FF)
-    val edgeMuted = Color(0x52627A)
-    val text = Color(0xEAF6FF)
-    val detail = Color(0x9EB7CB)
-    val selected = Color(0x2F7DFF)
-    val hover = Color(0x86F7FF)
-    val warning = Color(0xFFD36A)
-    val participantFill = Color(0x10243E)
-    val participantBorder = Color(0x2DE2E6)
-    val syncFill = Color(0x122D27)
-    val syncBorder = Color(0x31FF9C)
-    val globalSyncFill = Color(0x2B1E32)
-    val globalSyncBorder = Color(0xFF9F43)
+    fun fontSize(points: Float): Float = UIUtil.getLabelFont().size2D * points / 12f
+    val canvas get() = UIUtil.getPanelBackground()
+    val panel get() = UIUtil.getTableBackground()
+    val panelBorder get() = JBColor.border()
+    val grid get() = JBColor(Color(0xE8EAED), Color(0x30343B))
+    val edge get() = JBColor(Color(0x247D9D), Color(0x68C8DF))
+    val edgeMuted get() = JBColor.GRAY
+    val text get() = UIUtil.getLabelForeground()
+    val detail get() = JBColor(Color(0x596273), Color(0xADB4C0))
+    val selected get() = JBColor(Color(0x3574F0), Color(0x75A5FF))
+    val hover get() = selected
+    val warning get() = JBColor(Color(0x916300), Color(0xE3B65D))
+    val participantFill get() = JBColor(Color(0xEAF4F9), Color(0x203640))
+    val participantBorder get() = JBColor(Color(0x087F9E), Color(0x56CEDC))
+    val syncFill get() = JBColor(Color(0xF2EFF8), Color(0x302A3E))
+    val syncBorder get() = JBColor(Color(0x8054B3), Color(0xBD9AE8))
+    val globalSyncFill get() = JBColor(Color(0xF6F0FA), Color(0x393044))
+    val globalSyncBorder get() = JBColor(Color(0x8051AF), Color(0xC39CE9))
     fun fill(selection: TopologyGraphPanel.Selection): Color =
         when (selection) {
             is TopologyGraphPanel.Selection.Participant -> participantFill
@@ -80,7 +83,15 @@ private fun darPaletteSummary(names: List<String>): String =
         else -> "${names.first()} +${names.size - 1}"
     }
 
-class TopologyGraphPanel : JPanel() {
+class TopologyGraphPanel : JPanel(), javax.swing.Scrollable {
+    override fun getPreferredScrollableViewportSize() = preferredSize
+    override fun getScrollableTracksViewportWidth() = true
+    override fun getScrollableTracksViewportHeight() = false
+    override fun getScrollableUnitIncrement(visibleRect: Rectangle, orientation: Int, direction: Int) = 24
+    override fun getScrollableBlockIncrement(visibleRect: Rectangle, orientation: Int, direction: Int) = 120
+    fun refreshViewportSize() { preferredSize = graphSize(); revalidate() }
+    private fun narrowCanvas() = ((parent as? javax.swing.JViewport)?.extentSize?.width ?: width) in 1..699
+
     sealed class Selection {
         data class Participant(val id: String) : Selection()
         data class Synchronizer(val id: String) : Selection()
@@ -192,13 +203,6 @@ class TopologyGraphPanel : JPanel() {
     private var propertiesCloseBounds: Rectangle? = null
     private var dragMoved = false
     private var suppressNextClick = false
-    private var runtimeStatus: SandboxSessionStatus = SandboxSessionStatus.STOPPED
-    private var healthChecked = false
-    private var onlineParticipants: Set<String> = emptySet()
-    private var activityToken: Int? = null
-    private var lastActivityMillis = 0L
-    private var flowPhase = 0.0
-    private var lastAnimationNanos = 0L
     private var pendingSingleClickTimer: Timer? = null
     private var pendingSingleClickSelection: Selection? = null
     private val dragOverrides = mutableMapOf<String, Pair<Int, Int>>()
@@ -220,12 +224,6 @@ class TopologyGraphPanel : JPanel() {
         val multiClick = Toolkit.getDefaultToolkit().getDesktopProperty("awt.multiClickInterval") as? Int ?: 500
         (multiClick / 2).coerceIn(140, 220)
     }.getOrDefault(180)
-    private val flowTimer = Timer(16) {
-        advanceFlowAnimation()
-    }.apply {
-        isRepeats = true
-    }
-
     init {
         preferredSize = graphSize()
         minimumSize = Dimension(360, 260)
@@ -402,42 +400,8 @@ class TopologyGraphPanel : JPanel() {
         dragOverrides.clear()
         preferredSize = graphSize()
         revalidate()
-        updateFlowTimer()
         repaint()
     }
-
-    fun setRuntimeState(status: SandboxSessionStatus, health: List<HealthSnapshot>, activityToken: Int) {
-        val wasAnimating = isRuntimeFlowEnabled()
-        val nowMillis = System.currentTimeMillis()
-        val freshHealth = health.filter { nowMillis - it.timestampMillis <= 30_000 }
-        runtimeStatus = status
-        healthChecked = freshHealth.isNotEmpty()
-        onlineParticipants = freshHealth
-            .filter { it.endpoint.kind == "json" && (it.live || it.ready) }
-            .map { it.endpoint.nodeId }
-            .toSet()
-        val previousToken = this.activityToken
-        this.activityToken = activityToken
-        if (previousToken != null && previousToken != activityToken && isRuntimeFlowEnabled()) {
-            pulseFlow()
-        }
-        if (wasAnimating != isRuntimeFlowEnabled()) {
-            lastAnimationNanos = 0L
-        }
-        updateFlowTimer()
-        repaint()
-    }
-
-    fun pulseFlow() {
-        if (!isRuntimeFlowEnabled()) return
-        lastActivityMillis = System.currentTimeMillis()
-        updateFlowTimer()
-        repaint()
-    }
-
-    internal fun isRuntimeFlowEnabledForTest(): Boolean = isRuntimeFlowEnabled()
-
-    internal fun flowBoostForTest(): Double = activityBoost(System.currentTimeMillis())
 
     fun select(selection: Selection?) {
         val previous = selected
@@ -559,14 +523,8 @@ class TopologyGraphPanel : JPanel() {
         }
     }
 
-    override fun addNotify() {
-        super.addNotify()
-        updateFlowTimer()
-    }
-
     override fun removeNotify() {
         cancelPendingSingleClick()
-        flowTimer.stop()
         super.removeNotify()
     }
 
@@ -574,22 +532,22 @@ class TopologyGraphPanel : JPanel() {
         val result = mutableListOf<DrawNode>()
         val participantCount = max(1, profile.participants.size)
         val syncCount = max(1, profile.synchronizers.size)
-        val canvasWidth = max(width, graphSize().width)
+        val canvasWidth = width.coerceAtLeast(320)
         val canvasHeight = max(height, graphSize().height)
-        val participantX = 90
-        val syncX = min(max(460, canvasWidth / 2 + 90), canvasWidth - 340)
+        val participantX = if (narrowCanvas()) 20 else 90
+        val syncX = if (narrowCanvas()) 20 else min(max(460, canvasWidth / 2 + 90), canvasWidth - 340)
         val participantSpacing = canvasHeight / (participantCount + 1)
         val syncSpacing = canvasHeight / (syncCount + 1)
 
         profile.participants.forEachIndexed { index, participant ->
             val selection = Selection.Participant(participant.id)
-            val defaultY = participantSpacing * (index + 1) - 34
+            val defaultY = if (narrowCanvas()) 24 + index * 118 else participantSpacing * (index + 1) - 34
             val position = positionFor(selection, participantX, defaultY)
             val darNames = profile.assignedDarFileNames(participant.id)
             result += DrawNode(
                 selection,
                 "${TopologyNodeIcons.PARTICIPANT} - Participant - ${participant.name}",
-                "Ledger ${participant.ledgerPort} | JSON ${participant.jsonPort}",
+                "${profile.bindings.count { it.participantId == participant.id && it.connected }} configured synchronizer(s)",
                 darNodeSummary(darNames),
                 position.first,
                 position.second,
@@ -605,12 +563,12 @@ class TopologyGraphPanel : JPanel() {
             )
         }
         profile.synchronizers.forEachIndexed { index, synchronizer ->
-            val y = syncSpacing * (index + 1)
+            val y = if (narrowCanvas()) 58 + (participantCount + index) * 118 else syncSpacing * (index + 1)
             val syncSelection = Selection.Synchronizer(synchronizer.id)
             val syncPosition = positionFor(syncSelection, syncX, y - 34)
             result += DrawNode(
                 syncSelection,
-                "${TopologyNodeIcons.SYNCHRONIZER} - Sync Domain - ${synchronizer.name}",
+                "${TopologyNodeIcons.SYNCHRONIZER} - Synchronizer - ${synchronizer.name}",
                 if (SandboxDefaults.isSharedSynchronizer(synchronizer.id, synchronizer.name)) "shared route" else "sync domain",
                 null,
                 syncPosition.first,
@@ -659,7 +617,9 @@ class TopologyGraphPanel : JPanel() {
                 }
                 val wire = DrawWire(binding.participantId, binding.synchronizerId, binding.connected, from, to, control)
                 if (binding.connected) {
-                    drawRuntimeWire(g2, wire, targetColor, flowIntensityFor(wire))
+                    g2.stroke = BasicStroke(1.5f)
+                    g2.color = targetColor
+                    drawWire(g2, wire.from, wire.to, wire.control)
                 } else {
                     drawDormantWire(g2, wire)
                 }
@@ -706,26 +666,21 @@ class TopologyGraphPanel : JPanel() {
             isHover -> TopologyGraphTheme.hover
             else -> node.border
         }
-        if (isSelected || isHover || isDarDropTarget) {
-            g2.stroke = BasicStroke(if (isSelected || isDarDropTarget) 7f else 5f)
-            g2.color = withAlpha(border, if (isSelected || isDarDropTarget) 72 else 48)
-            g2.draw(shape)
-        }
         g2.stroke = BasicStroke(if (isSelected || isDarDropTarget) 2.8f else if (isHover) 2.0f else 1.4f)
         g2.color = border
         g2.draw(shape)
         drawNodePorts(g2, node, node.border)
         g2.color = TopologyGraphTheme.text
-        g2.font = font.deriveFont(Font.BOLD, 13f)
+        g2.font = font.deriveFont(Font.BOLD, TopologyGraphTheme.fontSize(13f))
         g2.drawString(elide(node.label, node.w - if (node.warning == null) 24 else 44, g2), node.x + 12, node.y + 26)
         node.warning?.let {
             drawWarningBadge(g2, node.x + node.w - 23, node.y + 7)
         }
-        g2.font = font.deriveFont(11f)
+        g2.font = font.deriveFont(TopologyGraphTheme.fontSize(11f))
         g2.color = if (node.warning == null) TopologyGraphTheme.detail else TopologyGraphTheme.warning
         g2.drawString(elide(node.detail, node.w - 24, g2), node.x + 12, node.y + 50)
         node.secondaryDetail?.let {
-            g2.font = font.deriveFont(10.7f)
+            g2.font = font.deriveFont(TopologyGraphTheme.fontSize(10.7f))
             g2.color = if (node.warning == null) TopologyGraphTheme.detail else TopologyGraphTheme.warning
             g2.drawString(elide(it, node.w - 24, g2), node.x + 12, node.y + 68)
         }
@@ -734,7 +689,7 @@ class TopologyGraphPanel : JPanel() {
     private fun drawDarDropHint(g2: Graphics2D) {
         val point = darDropPoint ?: return
         val text = darDropHint ?: return
-        g2.font = font.deriveFont(Font.BOLD, 11f)
+        g2.font = font.deriveFont(Font.BOLD, TopologyGraphTheme.fontSize(11f))
         val width = g2.fontMetrics.stringWidth(text) + 20
         val x = point.x.coerceIn(8, (this.width - width - 8).coerceAtLeast(8))
         val y = (point.y + 18).coerceIn(28, (this.height - 34).coerceAtLeast(28))
@@ -756,7 +711,7 @@ class TopologyGraphPanel : JPanel() {
         g2.stroke = BasicStroke(1.2f)
         g2.color = TopologyGraphTheme.warning
         g2.drawOval(x, y, 15, 15)
-        g2.font = font.deriveFont(Font.BOLD, 10f)
+        g2.font = font.deriveFont(Font.BOLD, TopologyGraphTheme.fontSize(10f))
         g2.drawString("!", x + 6, y + 11)
     }
 
@@ -803,12 +758,12 @@ class TopologyGraphPanel : JPanel() {
         g2.draw(shape)
 
         val title = selectionDetails.firstOrNull().orEmpty()
-        g2.font = font.deriveFont(Font.BOLD, 13f)
+        g2.font = font.deriveFont(Font.BOLD, TopologyGraphTheme.fontSize(13f))
         g2.color = TopologyGraphTheme.text
         g2.drawString(elide(title, cardWidth - 52, g2), x + 13, y + 21)
         drawCloseButton(g2, propertiesCloseBounds!!, border)
 
-        g2.font = font.deriveFont(11.5f)
+        g2.font = font.deriveFont(TopologyGraphTheme.fontSize(11.5f))
         var textY = y + 48
         selectionDetails.drop(1).take(maxBodyLines - 1).forEach { line ->
             if (line.isBlank()) {
@@ -821,7 +776,7 @@ class TopologyGraphPanel : JPanel() {
         }
         if (clipped) {
             g2.color = withAlpha(border, 210)
-            g2.drawString("More details in Nodes / Explorer tabs", x + 13, textY)
+            g2.drawString("More details in the selection inspector", x + 13, textY)
             textY += lineHeight
         }
         overlayActionBounds = drawOverlayActions(g2, x + 13, (y + cardHeight - 32).coerceAtLeast(textY + 4), cardWidth - 26, border)
@@ -831,7 +786,7 @@ class TopologyGraphPanel : JPanel() {
         if (overlayActions.isEmpty()) return emptyMap()
         val result = linkedMapOf<String, Rectangle>()
         var cursorX = x
-        g2.font = font.deriveFont(Font.BOLD, 10.5f)
+        g2.font = font.deriveFont(Font.BOLD, TopologyGraphTheme.fontSize(10.5f))
         overlayActions.forEach { action ->
             val w = (g2.fontMetrics.stringWidth(action.label) + 20).coerceAtMost(maxWidth)
             val bounds = Rectangle(cursorX, y, w, 24)
@@ -870,7 +825,7 @@ class TopologyGraphPanel : JPanel() {
         val positioned = profile.topologyPositions.map { it.x to it.y } + dragOverrides.values
         val maxX = positioned.maxOfOrNull { it.first } ?: 0
         val maxY = positioned.maxOfOrNull { it.second } ?: 0
-        return Dimension(max(980, maxX + 520), max(height, maxY + 260))
+        return Dimension(max(980, maxX + 520), if (narrowCanvas()) max(500, (profile.participants.size + profile.synchronizers.size) * 118 + 100) else max(height, maxY + 260))
     }
 
     private fun expandCanvasFor(x: Int, y: Int, nodeWidth: Int, nodeHeight: Int) {
@@ -901,43 +856,6 @@ class TopologyGraphPanel : JPanel() {
         g2.color = wireColor
     }
 
-    private fun drawRuntimeWire(g2: Graphics2D, wire: DrawWire, color: Color, intensity: Double) {
-        val path = QuadCurve2D.Float(
-            wire.from.first.toFloat(),
-            wire.from.second.toFloat(),
-            wire.control.first.toFloat(),
-            wire.control.second.toFloat(),
-            wire.to.first.toFloat(),
-            wire.to.second.toFloat()
-        )
-
-        g2.stroke = BasicStroke(5.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-        g2.color = withAlpha(color, if (intensity > 0.0) (30 + intensity * 42).roundToInt() else 22)
-        g2.draw(path)
-
-        g2.stroke = BasicStroke(1.9f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-        g2.color = withAlpha(color, if (intensity > 0.0) 210 else 150)
-        g2.draw(path)
-
-        if (intensity > 0.0) {
-            val dash = floatArrayOf(10f, (25f - (8f * intensity).toFloat()).coerceAtLeast(14f))
-            g2.stroke = BasicStroke(
-                (1.35f + intensity.toFloat() * 1.15f),
-                BasicStroke.CAP_ROUND,
-                BasicStroke.JOIN_ROUND,
-                0f,
-                dash,
-                (flowPhase * 96f).toFloat()
-            )
-            g2.color = withAlpha(Color.WHITE, (38 + intensity * 70).roundToInt())
-            g2.draw(path)
-            drawFlowPackets(g2, wire, color, intensity)
-        }
-
-        drawPort(g2, wire.from, color)
-        drawPort(g2, wire.to, color)
-    }
-
     private fun drawDormantWire(g2: Graphics2D, wire: DrawWire) {
         val path = QuadCurve2D.Float(
             wire.from.first.toFloat(),
@@ -959,78 +877,6 @@ class TopologyGraphPanel : JPanel() {
         g2.draw(path)
         drawPort(g2, wire.from, TopologyGraphTheme.edgeMuted)
         drawPort(g2, wire.to, TopologyGraphTheme.edgeMuted)
-    }
-
-    private fun drawFlowPackets(g2: Graphics2D, wire: DrawWire, color: Color, intensity: Double) {
-        val packetCount = if (intensity > 0.7) 4 else 3
-        val radius = (2.4 + 2.8 * intensity).toFloat()
-        repeat(packetCount) { index ->
-            val t = (flowPhase + index.toDouble() / packetCount) % 1.0
-            val point = wire.pointAt(t)
-            val x = point.first.toFloat()
-            val y = point.second.toFloat()
-            g2.color = withAlpha(color, (90 + 120 * intensity).roundToInt())
-            g2.fillOval(
-                (x - radius).roundToInt(),
-                (y - radius).roundToInt(),
-                (radius * 2).roundToInt(),
-                (radius * 2).roundToInt()
-            )
-            g2.color = withAlpha(Color.WHITE, (50 + 85 * intensity).roundToInt())
-            val core = (radius * 0.42f).coerceAtLeast(1.1f)
-            g2.fillOval(
-                (x - core).roundToInt(),
-                (y - core).roundToInt(),
-                (core * 2).roundToInt(),
-                (core * 2).roundToInt()
-            )
-        }
-    }
-
-    private fun flowIntensityFor(wire: DrawWire): Double {
-        if (!isRuntimeFlowEnabled()) return 0.0
-        if (healthChecked && wire.participantId !in onlineParticipants) return 0.0
-        return 0.28 + 0.72 * activityBoost(System.currentTimeMillis())
-    }
-
-    private fun activityBoost(nowMillis: Long): Double {
-        val age = nowMillis - lastActivityMillis
-        if (age !in 0..4_500) return 0.0
-        return 1.0 - age / 4_500.0
-    }
-
-    private fun isRuntimeFlowEnabled(): Boolean =
-        runtimeStatus == SandboxSessionStatus.RUNNING &&
-            profile.bindings.any { it.connected } &&
-            (!healthChecked || onlineParticipants.isNotEmpty())
-
-    private fun advanceFlowAnimation() {
-        if (!isRuntimeFlowEnabled()) {
-            updateFlowTimer()
-            return
-        }
-        val now = System.nanoTime()
-        val elapsedSeconds = if (lastAnimationNanos == 0L) {
-            0.0
-        } else {
-            ((now - lastAnimationNanos) / 1_000_000_000.0).coerceIn(0.0, 0.08)
-        }
-        lastAnimationNanos = now
-        val speed = 0.085 + 0.45 * activityBoost(System.currentTimeMillis())
-        flowPhase = (flowPhase + elapsedSeconds * speed) % 1.0
-        repaint()
-        updateFlowTimer()
-    }
-
-    private fun updateFlowTimer() {
-        val shouldRun = isShowing && isRuntimeFlowEnabled()
-        when {
-            shouldRun && !flowTimer.isRunning -> {
-                lastAnimationNanos = 0L
-                flowTimer.start()
-            }
-            !shouldRun && flowTimer.isRunning -> flowTimer.stop()
-        }
     }
 
     private fun scheduleSingleClickSelection(selection: Selection) {
@@ -1181,6 +1027,7 @@ class TopologyGraphPanel : JPanel() {
     }
 
     private fun positionFor(selection: Selection, defaultX: Int, defaultY: Int): Pair<Int, Int> {
+        if (narrowCanvas()) return defaultX to defaultY
         dragOverrides[selection.nodeId()]?.let { return it }
         val persisted = profile.topologyPositions.firstOrNull { it.nodeId == selection.nodeId() }
         return if (persisted == null) defaultX to defaultY else persisted.x to persisted.y
@@ -1210,222 +1057,52 @@ class TopologyGraphPanel : JPanel() {
         }
 }
 
-class TopologyComponentPalettePanel : JPanel() {
-    private data class PaletteEntry(
-        val selection: TopologyGraphPanel.Selection,
-        val name: String,
-        val meta: String,
-        val x: Int,
-        val y: Int,
-        val w: Int,
-        val h: Int
-    ) {
-        fun contains(px: Int, py: Int): Boolean = px in x..(x + w) && py in y..(y + h)
+/** Native node list provides keyboard selection, accessibility, and IDE scaling. */
+class TopologyComponentPalettePanel : JPanel(java.awt.BorderLayout()) {
+    private data class Entry(val selection: TopologyGraphPanel.Selection, val label: String, val detail: String) {
+        override fun toString() = label
     }
-
-    private var profile: SandboxProfile = SandboxDefaults.newProfile(null)
-    private var entries: List<PaletteEntry> = emptyList()
-    private var selected: TopologyGraphPanel.Selection? = null
-    private var hover: TopologyGraphPanel.Selection? = null
+    private val model = javax.swing.DefaultListModel<Entry>()
+    private val list = com.intellij.ui.components.JBList(model)
     private var listener: ((TopologyGraphPanel.Selection?) -> Unit)? = null
-    private val participantRowHeight = 40
-    private val syncRowHeight = 30
+    private var updating = false
 
     init {
-        preferredSize = Dimension(200, 420)
-        minimumSize = Dimension(165, 240)
-        background = TopologyGraphTheme.panel
-        isOpaque = true
-        addMouseListener(object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) {
-                entries.firstOrNull { it.contains(e.x, e.y) }?.selection?.let {
-                    selected = it
-                    listener?.invoke(it)
-                    repaint()
-                }
+        minimumSize = Dimension(170, 120)
+        list.selectionMode = javax.swing.ListSelectionModel.SINGLE_SELECTION
+        list.getAccessibleContext().accessibleName = "Topology nodes"
+        list.cellRenderer = object : javax.swing.DefaultListCellRenderer() {
+            override fun getListCellRendererComponent(owner: javax.swing.JList<*>?, value: Any?, index: Int, selected: Boolean, focus: Boolean): java.awt.Component {
+                super.getListCellRendererComponent(owner, value, index, selected, focus)
+                border = com.intellij.util.ui.JBUI.Borders.empty(8, 6)
+                val entry = value as? Entry
+                if (!selected && entry != null) foreground = TopologyGraphTheme.border(entry.selection)
+                toolTipText = entry?.detail
+                return this
             }
-        })
-        addMouseMotionListener(object : MouseMotionAdapter() {
-            override fun mouseMoved(e: MouseEvent) {
-                val next = entries.firstOrNull { it.contains(e.x, e.y) }?.selection
-                if (next != hover) {
-                    hover = next
-                    cursor = Cursor.getPredefinedCursor(if (hover == null) Cursor.DEFAULT_CURSOR else Cursor.HAND_CURSOR)
-                    repaint()
-                }
-            }
-        })
+        }
+        list.addListSelectionListener { if (!updating && !it.valueIsAdjusting) listener?.invoke(list.selectedValue?.selection) }
+        add(list, java.awt.BorderLayout.CENTER)
+        setProfile(SandboxDefaults.newProfile(null))
     }
 
     fun setProfile(profile: SandboxProfile) {
-        this.profile = profile
-        preferredSize = Dimension(200, preferredHeight())
-        revalidate()
-        repaint()
+        val entries = profile.participants.map { Entry(TopologyGraphPanel.Selection.Participant(it.id),
+            "Participant · ${it.name}", darPaletteSummary(profile.assignedDarFileNames(it.id))) } +
+            profile.synchronizers.map { Entry(TopologyGraphPanel.Selection.Synchronizer(it.id), "Synchronizer · ${it.name}",
+                "${profile.bindings.count { binding -> binding.synchronizerId == it.id && binding.connected }} configured participants") }
+        if ((0 until model.size()).map(model::getElementAt) == entries) return
+        val selected = list.selectedValue?.selection
+        updating = true
+        try { model.clear(); entries.forEach(model::addElement); select(selected) } finally { updating = false }
+        revalidate(); repaint()
     }
 
     fun select(selection: TopologyGraphPanel.Selection?) {
-        selected = selection
-        repaint()
+        val wasUpdating = updating; updating = true
+        try { list.selectedIndex = (0 until model.size()).firstOrNull { model.getElementAt(it).selection == selection } ?: -1 }
+        finally { updating = wasUpdating }
     }
 
-    fun setSelectionListener(listener: (TopologyGraphPanel.Selection?) -> Unit) {
-        this.listener = listener
-    }
-
-    override fun paintComponent(g: Graphics) {
-        super.paintComponent(g)
-        val g2 = g.create() as Graphics2D
-        try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.color = TopologyGraphTheme.panel
-            g2.fillRect(0, 0, width, height)
-            entries = layoutEntries()
-            drawHeader(g2)
-            entries.forEach { drawEntry(g2, it) }
-        } finally {
-            g2.dispose()
-        }
-    }
-
-    private fun drawHeader(g2: Graphics2D) {
-        g2.font = font.deriveFont(Font.BOLD, 12.5f)
-        g2.color = TopologyGraphTheme.text
-        g2.drawString("Components", 12, 22)
-        g2.font = font.deriveFont(9.5f)
-        g2.color = TopologyGraphTheme.detail
-        val summary = "${profile.participants.size} PN / ${profile.synchronizers.size} SD"
-        g2.drawString(summary, width - 12 - g2.fontMetrics.stringWidth(summary), 22)
-    }
-
-    private fun layoutEntries(): List<PaletteEntry> {
-        val result = mutableListOf<PaletteEntry>()
-        val rowX = 14
-        val rowW = (width - 26).coerceAtLeast(135)
-        var y = 44
-
-        fun section(title: String) {
-            y += if (result.isEmpty()) 0 else 8
-            y += 12
-            result += PaletteEntry(TopologyGraphPanel.Selection.Participant("__section_$title"), title, "", -1, y, 0, 0)
-            y += 5
-        }
-
-        fun entry(selection: TopologyGraphPanel.Selection, name: String, meta: String) {
-            val rowHeight = if (selection is TopologyGraphPanel.Selection.Participant) participantRowHeight else syncRowHeight
-            result += PaletteEntry(selection, name, meta, rowX, y, rowW, rowHeight)
-            y += rowHeight + 6
-        }
-
-        section("Participant")
-        profile.participants.forEach {
-            val darNames = profile.assignedDarFileNames(it.id)
-            entry(
-                TopologyGraphPanel.Selection.Participant(it.id),
-                it.name,
-                darPaletteSummary(darNames)
-            )
-        }
-
-        section("Sync Domain")
-        profile.synchronizers.forEach {
-            entry(
-                TopologyGraphPanel.Selection.Synchronizer(it.id),
-                it.name,
-                "${profile.bindings.count { binding -> binding.synchronizerId == it.id && binding.connected }} PN"
-            )
-        }
-
-        return result
-    }
-
-    private fun drawEntry(g2: Graphics2D, entry: PaletteEntry) {
-        if (entry.x < 0) {
-            drawSectionLabel(g2, entry.name, entry.y)
-            return
-        }
-        val fill = TopologyGraphTheme.fill(entry.selection)
-        val border = TopologyGraphTheme.border(entry.selection)
-        val cornerRadius = if (entry.selection is TopologyGraphPanel.Selection.Synchronizer &&
-            SandboxDefaults.isSharedSynchronizer(entry.selection.id)
-        ) 14f else 5f
-        val shape = RoundRectangle2D.Float(
-            entry.x.toFloat(),
-            entry.y.toFloat(),
-            entry.w.toFloat(),
-            entry.h.toFloat(),
-            cornerRadius,
-            cornerRadius
-        )
-        val isSelected = selected == entry.selection
-        val isHover = hover == entry.selection
-        val icon = when (entry.selection) {
-            is TopologyGraphPanel.Selection.Participant -> TopologyNodeIcons.PARTICIPANT
-            is TopologyGraphPanel.Selection.Synchronizer -> TopologyNodeIcons.SYNCHRONIZER
-        }
-
-        if (isSelected || isHover) {
-            g2.color = withAlpha(fill, if (isSelected) 170 else 85)
-            g2.fill(shape)
-        }
-        g2.stroke = BasicStroke(if (isSelected) 2.2f else 1.1f)
-        g2.color = if (isSelected) TopologyGraphTheme.selected else withAlpha(border, if (isHover) 210 else 125)
-        g2.drawLine(entry.x, entry.y + 5, entry.x, entry.y + entry.h - 5)
-        if (isSelected) {
-            g2.draw(shape)
-        }
-
-        val isParticipant = entry.selection is TopologyGraphPanel.Selection.Participant
-        val textX = entry.x + 29
-        val textWidth = (entry.w - 42).coerceAtLeast(36)
-        g2.font = font.deriveFont(Font.BOLD, 12f)
-        g2.color = border
-        g2.drawString(icon, entry.x + 9, entry.y + if (isParticipant) 19 else 20)
-        g2.font = font.deriveFont(Font.BOLD, 10.8f)
-        g2.color = TopologyGraphTheme.text
-        if (isParticipant) {
-            g2.drawString(elide(entry.name, textWidth, g2), textX, entry.y + 17)
-            g2.font = font.deriveFont(9.4f)
-            g2.color = TopologyGraphTheme.detail
-            g2.drawString(elide(entry.meta, textWidth, g2), textX, entry.y + 33)
-        } else {
-            val metaWidth = g2.fontMetrics.stringWidth(entry.meta)
-            val nameWidth = entry.w - 48 - metaWidth
-            g2.drawString(elide(entry.name, nameWidth.coerceAtLeast(36), g2), textX, entry.y + 20)
-            g2.font = font.deriveFont(9.5f)
-            g2.color = TopologyGraphTheme.detail
-            g2.drawString(entry.meta, entry.x + entry.w - 9 - g2.fontMetrics.stringWidth(entry.meta), entry.y + 20)
-        }
-    }
-
-    private fun drawSectionLabel(g2: Graphics2D, title: String, y: Int) {
-        val color = when (title) {
-            "Participant" -> TopologyGraphTheme.participantBorder
-            else -> TopologyGraphTheme.syncBorder
-        }
-        g2.font = font.deriveFont(Font.BOLD, 9.5f)
-        g2.color = color
-        g2.drawString(title.uppercase(), 14, y)
-        g2.stroke = BasicStroke(1f)
-        g2.color = withAlpha(color, 80)
-        g2.drawLine(14 + g2.fontMetrics.stringWidth(title.uppercase()) + 8, y - 4, width - 14, y - 4)
-    }
-
-    private fun preferredHeight(): Int =
-        98 +
-            profile.participants.size.coerceAtLeast(1) * (participantRowHeight + 6) +
-            profile.synchronizers.size.coerceAtLeast(1) * (syncRowHeight + 6)
-
-    private fun elide(value: String, maxWidth: Int, g2: Graphics2D): String {
-        if (g2.fontMetrics.stringWidth(value) <= maxWidth) return value
-        val ellipsis = "..."
-        var candidate = value
-        while (candidate.isNotEmpty() && g2.fontMetrics.stringWidth(candidate + ellipsis) > maxWidth) {
-            candidate = candidate.dropLast(1)
-        }
-        return if (candidate.isEmpty()) ellipsis else candidate + ellipsis
-    }
-
-    private fun withAlpha(color: Color, alpha: Int): Color =
-        Color(color.red, color.green, color.blue, alpha.coerceIn(0, 255))
+    fun setSelectionListener(listener: (TopologyGraphPanel.Selection?) -> Unit) { this.listener = listener }
 }
