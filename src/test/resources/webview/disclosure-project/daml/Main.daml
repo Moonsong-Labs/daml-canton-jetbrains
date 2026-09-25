@@ -1,0 +1,51 @@
+module Main where
+
+import Daml.Script
+
+template Asset
+  with
+    owners : [Party]
+    viewer : Party
+  where
+    signatory owners
+    observer viewer
+
+template Envelope
+  with
+    owner : Party
+    witness : Party
+  where
+    signatory owner
+    observer witness
+
+    choice Envelope_Reveal : ()
+      with
+        asset : ContractId Asset
+      controller owner
+      do
+        _ <- fetch asset
+        pure ()
+
+    choice Envelope_Spawn : ContractId Asset
+      controller owner
+      do
+        create Asset with owners = [owner]; viewer = owner
+
+-- Real S/O/W/D output, hidden cells, archived rows, and non-letter party names.
+disclosureFixture : Script ()
+disclosureFixture = script do
+  alice <- allocateParty "Alice"
+  spaced <- allocateParty "Alice Smith"
+  numeric <- allocateParty "123"
+  underscored <- allocateParty "_Trader"
+  bob <- allocateParty "Bob"
+  nobody <- allocateParty "Nobody"
+  let owners = [alice, spaced, numeric, underscored]
+  _ <- submit (actAs owners) $ createCmd Asset with owners; viewer = bob
+  existing <- submit alice $ createCmd Asset with owners = [alice]; viewer = alice
+  reveal <- submit alice $ createCmd Envelope with owner = alice; witness = bob
+  submit alice $ exerciseCmd reveal Envelope_Reveal with asset = existing
+  spawn <- submit alice $ createCmd Envelope with owner = alice; witness = bob
+  _ <- submit alice $ exerciseCmd spawn Envelope_Spawn
+  _ <- submit nobody $ createCmd Asset with owners = [nobody]; viewer = nobody
+  submit alice $ exerciseCmd existing Archive

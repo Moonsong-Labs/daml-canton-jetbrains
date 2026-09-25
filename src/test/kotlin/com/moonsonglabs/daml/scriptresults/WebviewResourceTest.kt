@@ -9,11 +9,12 @@ class WebviewResourceTest {
         val html = resource("/webview/webview.html")
         val js = resource("/webview/webview.js")
 
+        assertTrue(js.contains("id: DISCLOSURE"))
         assertTrue(html.contains("id=\"view_tabs\""))
         assertTrue(html.contains("id=\"search_input\""))
         assertTrue(html.contains("id=\"progress_status\""))
         assertTrue(html.contains("\$webviewTheme"))
-        listOf("overview", "contracts", "txTree", "disclosure", "console", "raw").forEach { view ->
+        listOf("overview", "contracts", "txTree", "console", "raw").forEach { view ->
             assertTrue("Expected $view tab in webview script", js.contains("id: '$view'"))
         }
     }

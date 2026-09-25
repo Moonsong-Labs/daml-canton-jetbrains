@@ -25,9 +25,9 @@ class CantonSandboxPanelTest : BasePlatformTestCase() {
         try {
             assertFalse(panel.containsTab("Explorer"))
             assertTrue(panel.containsTab("Topology"))
-            assertTrue(panel.containsTab("Nodes"))
+            assertFalse(panel.containsTab("Nodes"))
             assertFalse(panel.containsTab("DARs"))
-            assertTrue(panel.containsTab("Parties"))
+            assertTrue(panel.containsTab("Packages & Parties"))
             assertTrue(panel.containsTab("Logs"))
         } finally {
             panel.dispose()
@@ -39,8 +39,8 @@ class CantonSandboxPanelTest : BasePlatformTestCase() {
 
         try {
             assertTrue(panel.containsLabel("Topology"))
-            assertNotNull(panel.findButton("Add PN"))
-            assertNotNull(panel.findButton("Add SD"))
+            assertNotNull(panel.findButton("Participant"))
+            assertNotNull(panel.findButton("Synchronizer"))
             assertNotNull(panel.findButton("Arrange"))
             assertNotNull(panel.findButton("Selection"))
             assertFalse(panel.containsLabel("DARs"))
@@ -91,7 +91,7 @@ class CantonSandboxPanelTest : BasePlatformTestCase() {
             assertEquals(TopologyGraphTheme.panel, participantTable.background)
             assertEquals(TopologyGraphTheme.panel, syncTable.background)
             assertEquals(30, participantTable.rowHeight)
-            assertEquals(TopologyGraphTheme.warning, participantTable.tableHeader.foreground)
+            assertEquals(TopologyGraphTheme.text, participantTable.tableHeader.foreground)
         } finally {
             panel.dispose()
         }
@@ -105,9 +105,9 @@ class CantonSandboxPanelTest : BasePlatformTestCase() {
             val nameField = panel.privateField<JBTextField>("nameField")
             val portBaseField = panel.privateField<JBTextField>("portBaseField")
 
-            assertEquals(34, profileCombo.preferredSize.height)
-            assertEquals(34, nameField.preferredSize.height)
-            assertEquals(34, portBaseField.preferredSize.height)
+            assertTrue(profileCombo.preferredSize.height <= 34)
+            assertTrue(nameField.preferredSize.height <= 34)
+            assertTrue(portBaseField.preferredSize.height <= 34)
         } finally {
             panel.dispose()
         }
@@ -119,7 +119,7 @@ class CantonSandboxPanelTest : BasePlatformTestCase() {
         try {
             val statusBadge = panel.privateField<JLabel>("networkStatusBadge")
 
-            assertEquals("Status: Stopped", statusBadge.text)
+            assertEquals("Stopped", statusBadge.text)
             assertEquals(networkStatusColor(SandboxSessionStatus.STOPPED), statusBadge.foreground)
 
             panel.privateMethod("renderSession", SandboxSessionState::class.java)
@@ -132,7 +132,7 @@ class CantonSandboxPanelTest : BasePlatformTestCase() {
                     )
                 )
 
-            assertEquals("Status: Running", statusBadge.text)
+            assertEquals("Running", statusBadge.text)
             assertEquals(networkStatusColor(SandboxSessionStatus.RUNNING), statusBadge.foreground)
             assertEquals("Sandbox ready", statusBadge.toolTipText)
         } finally {

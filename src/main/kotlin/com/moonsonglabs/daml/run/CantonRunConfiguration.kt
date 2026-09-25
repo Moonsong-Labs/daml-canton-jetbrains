@@ -36,7 +36,7 @@ class CantonRunConfiguration(
     var extraArguments: String = ""
 
     override fun getConfigurationEditor(): SettingsEditor<out com.intellij.execution.configurations.RunConfiguration> =
-        CantonRunSettingsEditor()
+        CantonRunSettingsEditor(project)
 
     override fun getState(executor: Executor, environment: ExecutionEnvironment): RunProfileState =
         object : CommandLineState(environment) {
@@ -51,6 +51,10 @@ class CantonRunConfiguration(
                 return handler
             }
         }
+
+    override fun checkConfiguration() {
+        if (targetPath.isBlank()) throw com.intellij.execution.configurations.RuntimeConfigurationError("Choose a ${mode.presentableName.lowercase()} file.")
+    }
 
     fun buildCommandLine(): List<String> {
         val settings = DamlProjectSettings.getInstance(project)
@@ -67,7 +71,7 @@ class CantonRunConfiguration(
                 args += targetPath
             }
             CantonMode.SCRIPT -> {
-                args += "-c"
+                args += "run"
                 args += targetPath
             }
         }
@@ -109,5 +113,7 @@ class CantonRunConfiguration(
 
 enum class CantonMode(val presentableName: String) {
     CONFIG("Config"),
-    SCRIPT("Script")
+    SCRIPT("Script");
+
+    override fun toString(): String = presentableName
 }

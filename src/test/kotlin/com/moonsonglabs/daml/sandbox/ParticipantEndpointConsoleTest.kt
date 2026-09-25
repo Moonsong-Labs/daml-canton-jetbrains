@@ -28,7 +28,7 @@ class SandboxEndpointCatalogTest {
     }
 
     @Test
-    fun `request bodies use participant parties offsets and deterministic command ids`() {
+    fun `request bodies use resolved parties offsets and fresh command ids`() {
         val profile = SandboxDefaults.newProfile(null)
         val participant = profile.participants.first()
         profile.partyAllocations.clear()
@@ -37,16 +37,16 @@ class SandboxEndpointCatalogTest {
         val activePreset = SandboxEndpointCatalog.builtInPresets().first { it.id == "active-contracts" }
         val active = JsonParser.parseString(SandboxEndpointCatalog.requestBody(activePreset, profile, participant, 42)).asJsonObject
         assertEquals(42, active.get("activeAtOffset").asInt)
-        assertTrue(active.getAsJsonObject("eventFormat").getAsJsonObject("filtersByParty").has("Bank"))
+        assertTrue(active.getAsJsonObject("eventFormat").getAsJsonObject("filtersByParty").has("<select-party>"))
 
         val commandPreset = SandboxEndpointCatalog.builtInPresets().first { it.id == "submit-wait" }
         val command = JsonParser.parseString(SandboxEndpointCatalog.requestBody(commandPreset, profile, participant)).asJsonObject
-        assertEquals("cmd-issuer-submit-wait", command.get("commandId").asString)
-        assertEquals("Bank", command.getAsJsonArray("actAs").first().asString)
+        assertTrue(command.get("commandId").asString.isNotBlank())
+        assertEquals("<select-party>", command.getAsJsonArray("actAs").first().asString)
 
         val transactionPreset = SandboxEndpointCatalog.builtInPresets().first { it.id == "submit-transaction" }
         val transaction = JsonParser.parseString(SandboxEndpointCatalog.requestBody(transactionPreset, profile, participant)).asJsonObject
-        assertEquals("cmd-issuer-submit-transaction", transaction.getAsJsonObject("commands").get("commandId").asString)
+        assertFalse(command.get("commandId").asString == transaction.getAsJsonObject("commands").get("commandId").asString)
 
         val createPartyPreset = SandboxEndpointCatalog.builtInPresets().first { it.id == "create-party" }
         val createParty = JsonParser.parseString(SandboxEndpointCatalog.requestBody(createPartyPreset, profile, participant)).asJsonObject
@@ -56,7 +56,7 @@ class SandboxEndpointCatalogTest {
     }
 
     @Test
-    fun `request bodies prefer generated allocated party ids when available`() {
+    fun `request bodies use runtime party discovery rather than generated side files`() {
         val root = Files.createTempDirectory("managed-sandbox-console-test")
         try {
             val profile = SandboxDefaults.newProfile(null)
@@ -77,12 +77,12 @@ class SandboxEndpointCatalogTest {
             )
 
             val activePreset = SandboxEndpointCatalog.builtInPresets().first { it.id == "active-contracts" }
-            val active = JsonParser.parseString(SandboxEndpointCatalog.requestBody(activePreset, profile, participant, 42)).asJsonObject
-            assertTrue(active.getAsJsonObject("eventFormat").getAsJsonObject("filtersByParty").has("Bank::1220abc"))
+            val active = JsonParser.parseString(SandboxEndpointCatalog.requestBody(activePreset, profile, participant, 42, resolvedParties = listOf("Bank::runtime"))).asJsonObject
+            assertTrue(active.getAsJsonObject("eventFormat").getAsJsonObject("filtersByParty").has("Bank::runtime"))
 
             val commandPreset = SandboxEndpointCatalog.builtInPresets().first { it.id == "submit-wait" }
-            val command = JsonParser.parseString(SandboxEndpointCatalog.requestBody(commandPreset, profile, participant)).asJsonObject
-            assertEquals("Bank::1220abc", command.getAsJsonArray("actAs").first().asString)
+            val command = JsonParser.parseString(SandboxEndpointCatalog.requestBody(commandPreset, profile, participant, resolvedParties = listOf("Bank::runtime"))).asJsonObject
+            assertEquals("Bank::runtime", command.getAsJsonArray("actAs").first().asString)
         } finally {
             root.toFile().deleteRecursively()
         }
@@ -276,6 +276,48 @@ class ParticipantEndpointConsoleTest : BasePlatformTestCase() {
         assertTrue("Endpoint console screenshot appears blank", distinctColors(image) > 10)
     }
 
+    fun `test log and health notifications preserve request edits and per participant drafts`() {
+        val profile = twoParticipantProfile()
+        val console = console { _, _, _, _, _ -> SandboxHttpResponse(200, "{}", emptyMap(), 0) }
+        val session = runningState(profile)
+        console.setContext(profile, session, profile.participants[0].id)
+        console.selectPresetForTest("active-contracts")
+        val body = console.privateField<JBTextArea>("bodyArea")
+        body.text = "custom request A"
+        console.setContext(profile, session.copy(log = "new log", message = "health updated"), profile.participants[0].id)
+        assertEquals("custom request A", body.text)
+        console.setContext(profile, session, profile.participants[1].id)
+        body.text = "custom request B"
+        console.setContext(profile, session, profile.participants[0].id)
+        assertEquals("custom request A", body.text)
+        console.selectPresetForTest("packages")
+        console.selectPresetForTest("active-contracts")
+        assertEquals("custom request A", body.text)
+    }
+
+    fun `test stale response after participant switch cannot replace current response`() {
+        val tasks = mutableListOf<() -> Unit>()
+        val profile = twoParticipantProfile()
+        val console = ParticipantEndpointConsole(project, SandboxSessionService.getInstance(project),
+            requestSender = { _, _, _, _, _ -> SandboxHttpResponse(200, "old response", emptyMap(), 0) },
+            backgroundExecutor = { tasks += it })
+        console.setContext(profile, runningState(profile), profile.participants[0].id)
+        console.selectPresetForTest("packages"); console.sendSelectedForTest()
+        val obsoleteTasks = tasks.toList(); tasks.clear()
+        console.setContext(profile, runningState(profile), profile.participants[1].id)
+        obsoleteTasks.forEach { it() }; flushEdt()
+        assertFalse(console.privateField<JBTextArea>("responseArea").text.contains("old response"))
+    }
+
+    fun `test running profile A does not enable requests for profile B`() {
+        val a = twoParticipantProfile(); val b = twoParticipantProfile()
+        var sent = false
+        val console = console { _, _, _, _, _ -> sent = true; SandboxHttpResponse(200, "{}", emptyMap(), 0) }
+        console.setContext(b, runningState(a), b.participants[0].id)
+        console.selectPresetForTest("packages"); console.sendSelectedForTest()
+        assertFalse(sent)
+    }
+
     private fun console(
         confirm: (SandboxEndpointPreset) -> Boolean = { true },
         sender: (Endpoint, String, String, String?, String?) -> SandboxHttpResponse
@@ -299,6 +341,7 @@ class ParticipantEndpointConsoleTest : BasePlatformTestCase() {
         SandboxSessionState(
             profileId = profile.id,
             status = SandboxSessionStatus.RUNNING,
+            sessionId = "test-session", ownsProcess = true, launchedProfile = profile.deepCopy(),
             endpoints = EndpointBuilder.all(profile),
             health = EndpointBuilder.participantEndpoints(profile)
                 .filter { it.kind == "json" }

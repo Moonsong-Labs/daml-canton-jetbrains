@@ -1,7 +1,6 @@
 package com.moonsonglabs.daml.sandbox
 
 import com.google.gson.GsonBuilder
-import com.moonsonglabs.daml.sdk.DamlSdkVersions
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -83,7 +82,7 @@ class SandboxGenerator(private val projectRoot: Path? = null) {
         appendLine("""CONF="canton.conf"""")
         appendLine("""BOOT="bootstrap.canton"""")
         appendLine("""LOG_DIR="log"""")
-        appendLine("""SDK_VERSION="${'$'}{CANTON_SDK_VERSION:-${DamlSdkVersions.DEFAULT}}"""")
+        appendLine("""SDK_VERSION="${'$'}{CANTON_SDK_VERSION:-}"""")
         appendLine("""CANTON_JAR_DEFAULT="${'$'}HOME/.daml/sdk/${'$'}SDK_VERSION/canton/canton.jar"""")
         appendLine("""CANTON_DPM_JAR_DEFAULT="${'$'}HOME/.dpm/cache/components/canton-enterprise/${'$'}SDK_VERSION/lib/canton-enterprise-${'$'}SDK_VERSION.jar"""")
         appendLine("""CANTON_JAR="${'$'}{CANTON_JAR:-}"""")
@@ -93,7 +92,7 @@ class SandboxGenerator(private val projectRoot: Path? = null) {
         appendLine("""  elif [[ -f "${'$'}CANTON_DPM_JAR_DEFAULT" ]]; then""")
         appendLine("    CANTON_JAR=\"${'$'}CANTON_DPM_JAR_DEFAULT\"")
         appendLine("""  else""")
-        appendLine("""    CANTON_JAR="$(find "${'$'}HOME/.dpm/cache/components" -path '*/lib/canton*.jar' -type f 2>/dev/null | sort -r | head -n 1 || true)"""")
+        appendLine("""    CANTON_JAR="$(find "${'$'}HOME/.daml/sdk" "${'$'}HOME/.dpm/cache/components" -type f \( -path '*/canton/canton.jar' -o -path '*/lib/canton*.jar' \) 2>/dev/null | sort -r | head -n 1 || true)"""")
         appendLine("""  fi""")
         appendLine("""fi""")
         appendLine()

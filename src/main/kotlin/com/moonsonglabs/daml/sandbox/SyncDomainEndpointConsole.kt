@@ -352,6 +352,8 @@ internal class SyncDomainEndpointConsole(
     private var session: SandboxSessionState = SandboxSessionState()
     private var sync: SynchronizerNode? = null
     private var selectedPreset: SyncDiagnosticPreset? = null
+    private var requestSequence = 0L
+    private var inFlight = false
 
     init {
         name = "SyncDomainEndpointConsole"
@@ -367,9 +369,12 @@ internal class SyncDomainEndpointConsole(
     }
 
     fun setContext(profile: SandboxProfile, session: SandboxSessionState, syncId: String?) {
-        this.profile = profile
+        if ("${this.profile?.id}:${this.session.sessionId}:${sync?.id}" != "${profile.id}:${session.sessionId}:$syncId") {
+            requestSequence++; inFlight = false
+        }
+        this.profile = if (session.belongsTo(profile)) session.launchedProfile ?: profile else profile
         this.session = session
-        sync = syncId?.let(profile::synchronizer)
+        sync = syncId?.let(this.profile!!::synchronizer)
         renderSync()
         updateEnabledState()
     }
@@ -392,7 +397,11 @@ internal class SyncDomainEndpointConsole(
         presetList.foreground = TopologyGraphTheme.text
         presetList.fixedCellHeight = -1
         presetList.addListSelectionListener {
-            if (!it.valueIsAdjusting) selectedPreset = presetList.selectedValue
+            if (!it.valueIsAdjusting) {
+                requestSequence++; inFlight = false
+                selectedPreset = presetList.selectedValue
+                updateEnabledState()
+            }
         }
     }
 
@@ -414,12 +423,12 @@ internal class SyncDomainEndpointConsole(
 
     private fun body(): JComponent =
         JSplitPane(JSplitPane.HORIZONTAL_SPLIT, collection(), response()).apply {
+            ui = IdeSplitPaneUI()
             resizeWeight = 0.0
             dividerLocation = 250
             dividerSize = 8
             border = BorderFactory.createEmptyBorder()
             background = TopologyGraphTheme.canvas
-            ui = SyncDiagnosticSplitPaneUI()
         }
 
     private fun collection(): JComponent =
@@ -459,7 +468,7 @@ internal class SyncDomainEndpointConsole(
     }
 
     private fun updateEnabledState() {
-        val canRun = session.status == SandboxSessionStatus.RUNNING && sync != null
+        val canRun = profile?.let(session::canQuery) == true && sync != null && !inFlight
         sendButton.isEnabled = canRun
         sendButton.toolTipText = if (canRun) "Run diagnostic" else "Start sandbox and select a sync domain"
     }
@@ -468,17 +477,22 @@ internal class SyncDomainEndpointConsole(
         val currentProfile = profile ?: return
         val currentSync = sync ?: return
         val preset = selectedPreset ?: return
-        if (session.status != SandboxSessionStatus.RUNNING) {
+        if (!session.canQuery(currentProfile)) {
             showResult("Start sandbox to query synchronizer endpoints.", error = true)
             return
         }
         resultMeta.text = "Running ${preset.name}..."
         resultMeta.foreground = TopologyGraphTheme.warning
         resultArea.text = ""
+        inFlight = true
+        val request = ++requestSequence
         sendButton.isEnabled = false
+        val context = "${currentProfile.id}:${session.sessionId}:${currentSync.id}"
         backgroundExecutor {
             val response = runCatching { diagnosticRunner(currentProfile, currentSync, preset) }
             SwingUtilities.invokeLater {
+                if (request != requestSequence || "${profile?.id}:${session.sessionId}:${sync?.id}" != context) return@invokeLater
+                inFlight = false
                 updateEnabledState()
                 response.fold(
                     onSuccess = { renderResponse(it) },

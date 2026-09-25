@@ -32,10 +32,11 @@ class DamlGotoDeclarationHandler : GotoDeclarationHandler {
         contextFile: VirtualFile?,
         sourceElement: PsiElement
     ): Array<PsiElement>? {
-        val symbol = DamlModuleNames.symbolAtOrNear(text, offset) ?: return null
-        val target = DamlModuleResolver.getInstance(sourceElement.project)
-            .resolveSymbolReference(symbol, contextFile)
-            ?: return null
-        return arrayOf(target)
+        val file = sourceElement.containingFile
+        val model = com.moonsonglabs.daml.lang.DamlSourceModel.get(file)
+        val actual = if (model.text.getOrNull(offset) == '@') offset + 1 else offset
+        val symbol = DamlModuleResolver.referenceAt(file, actual) ?: return null
+        return DamlModuleResolver.getInstance(sourceElement.project).resolveAll(symbol, file)
+            .takeIf { it.isNotEmpty() }?.toTypedArray()
     }
 }

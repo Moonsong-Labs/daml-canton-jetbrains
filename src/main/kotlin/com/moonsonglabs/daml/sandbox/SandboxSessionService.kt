@@ -2,6 +2,7 @@ package com.moonsonglabs.daml.sandbox
 
 import com.intellij.execution.ExecutionException
 import com.intellij.execution.configurations.GeneralCommandLine
+import com.intellij.execution.process.CapturingProcessHandler
 import com.intellij.execution.process.OSProcessHandler
 import com.intellij.execution.process.ProcessEvent
 import com.intellij.execution.process.ProcessListener
@@ -33,8 +34,18 @@ data class SandboxSessionState(
     var endpoints: List<Endpoint> = emptyList(),
     var health: List<HealthSnapshot> = emptyList(),
     var log: String = "",
-    var message: String = ""
-)
+    var message: String = "",
+    val sessionId: String = "",
+    val launchedProfile: SandboxProfile? = null,
+    val ownsProcess: Boolean = false,
+    val runtimeVersion: String = ""
+) {
+    fun belongsTo(profile: SandboxProfile): Boolean = profileId == profile.id
+    fun canQuery(profile: SandboxProfile): Boolean = belongsTo(profile) && ownsProcess && sessionId.isNotBlank() && status == SandboxSessionStatus.RUNNING
+    fun hasPendingChanges(profile: SandboxProfile): Boolean = belongsTo(profile) && launchedProfile?.let {
+        it.runtimeDefinition() != profile.runtimeDefinition()
+    } == true
+}
 
 @Service(Service.Level.PROJECT)
 class SandboxSessionService(private val project: Project) : Disposable {
@@ -44,14 +55,22 @@ class SandboxSessionService(private val project: Project) : Disposable {
         Thread(r, "Managed-Canton-Sandbox").apply { isDaemon = true }
     }
     private val httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build()
-    private val readinessTimeout = Duration.ofSeconds(90)
-    private val readinessPollInterval = Duration.ofSeconds(1)
-    private var handler: OSProcessHandler? = null
+    private val ledgerExplorer by lazy { SandboxLedgerExplorer(projectRoot = DamlWorkspaceService.getInstance(project).projectRoot()) }
+    internal var readinessTimeout = Duration.ofSeconds(90)
+    internal var readinessPollInterval = Duration.ofSeconds(1)
+    private val lifecycle = SandboxLifecycle()
+    private val stateLock = Any()
+    @Volatile private var handler: SandboxManagedProcess? = null
     private var state = SandboxSessionState()
     @Volatile
     private var bootstrapReady = false
 
-    fun snapshot(): SandboxSessionState = state.copy()
+    internal var runtimeOperations = SandboxRuntimeOperations(::prepareLaunch, ::CantonManagedProcess, ::jsonHealth)
+    internal var stopTimeoutMs: Long = 15_000
+
+    fun snapshot(): SandboxSessionState = synchronized(stateLock) {
+        state.copy(launchedProfile = state.launchedProfile?.deepCopy(), ownsProcess = handler?.isTerminated == false)
+    }
 
     fun addListener(listener: (SandboxSessionState) -> Unit): Disposable {
         listeners += listener
@@ -59,64 +78,66 @@ class SandboxSessionService(private val project: Project) : Disposable {
         return Disposable { listeners -= listener }
     }
 
-    fun generate(profile: SandboxProfile): SandboxGeneratedFiles {
-        val runtimeProfile = runtimeProfile(profile)
-        update(status = SandboxSessionStatus.GENERATING, profile = runtimeProfile, message = "Generating sandbox files")
-        val generated = generator().generate(runtimeProfile)
-        update(status = SandboxSessionStatus.STOPPED, profile = runtimeProfile, generated = generated, message = "Generated ${generated.root}")
-        return generated
-    }
+    fun generate(profile: SandboxProfile): SandboxGeneratedFiles = generator().generate(runtimeProfile(profile.deepCopy()))
 
     fun startLocal(profile: SandboxProfile) {
-        executor.execute {
+        val draft = profile.deepCopy()
+        lifecycle.submit { generation ->
             runCatching {
-                stopCurrent(wait = true)
-                val runtimeProfile = runtimeProfile(profile)
-                val validation = validator.validate(runtimeProfile, checkDarContents = false)
-                if (!validation.ok) {
-                    val details = validation.checks.filterNot { it.ok }.joinToString("\n") { "${it.name}: ${it.detail}" }
-                    throw ExecutionException("${validation.message}\n$details")
+                check(stopCurrent(wait = true)) { "The previous Canton process has not stopped." }
+                if (!lifecycle.isCurrent(generation)) return@submit
+                update(status = SandboxSessionStatus.STARTING, profile = draft, message = "Validating network…")
+                val prepared = runtimeOperations.prepare(draft) { !lifecycle.isCurrent(generation) } ?: return@submit
+                if (!lifecycle.isCurrent(generation)) return@submit
+                synchronized(stateLock) {
+                    state = state.copy(sessionId = generation.toString(), launchedProfile = draft.deepCopy(), runtimeVersion = prepared.version, health = emptyList())
                 }
-                val generated = generate(runtimeProfile)
-                val command = localCantonCommand(generated)
-                startProcess(runtimeProfile, generated, command, generated.localConfig.parent.toFile().absolutePath)
+                startProcess(prepared.profile, prepared.generated, prepared.command, prepared.generated.localConfig.parent.toString(), generation)
+
             }.onFailure {
-                appendLog("Failed to start local sandbox: ${it.message}\n")
-                update(status = SandboxSessionStatus.FAILED, profile = profile, message = it.message ?: "Local start failed")
+                if (lifecycle.isCurrent(generation)) {
+                    appendLog("Failed to start local sandbox: ${it.message}\n")
+                    update(status = SandboxSessionStatus.FAILED, message = it.message ?: "Local start failed")
+                }
             }
         }
     }
 
     fun stop() {
-        executor.execute {
-            stopCurrent(wait = true)
-            update(status = SandboxSessionStatus.STOPPED, message = "Stopped")
+        lifecycle.submit {
+            if (stopCurrent(wait = true)) update(status = SandboxSessionStatus.STOPPED, message = "Stopped")
         }
     }
 
     fun clean(profile: SandboxProfile) {
-        executor.execute {
-            stopCurrent(wait = true)
-            val root = generator().generatedRoot(runtimeProfile(profile))
-            runCatching {
-                root.resolve("local").resolve("log").toFile().deleteRecursively()
-                root.resolve("logs").toFile().deleteRecursively()
-                root.resolve("data").toFile().deleteRecursively()
-            }.onFailure { appendLog("Clean failed: ${it.message}\n") }
-            update(status = SandboxSessionStatus.STOPPED, profile = profile, message = "Cleaned runtime data")
+        val draft = profile.deepCopy()
+        lifecycle.enqueue {
+            if (snapshot().ownsProcess || snapshot().status == SandboxSessionStatus.STARTING) {
+                appendLog("Stop the running sandbox before cleaning runtime files.\n")
+                return@enqueue
+            }
+            runCatching { SandboxFileOwnership.clean(generator().generatedRoot(runtimeProfile(draft))) }
+                .onSuccess { appendLog(if (it) "Cleaned owned runtime logs.\n" else "No owned runtime files to clean; existing files preserved.\n") }
+                .onFailure { appendLog("Clean failed: ${it.message}\n") }
         }
     }
 
     fun refreshHealth(profile: SandboxProfile) {
+        val current = snapshot()
+        if (!current.belongsTo(profile) || !current.ownsProcess) return
+        val launched = current.launchedProfile ?: return
         executor.execute {
-            val endpoints = EndpointBuilder.all(profile)
-            val health = jsonHealth(profile)
-            update(profile = profile, endpoints = endpoints, health = health, message = "Refreshed health")
+            val health = runtimeOperations.probe(launched) { snapshot().sessionId != current.sessionId || !snapshot().ownsProcess }
+            synchronized(stateLock) {
+                if (state.sessionId != current.sessionId || state.profileId != current.profileId || handler?.isTerminated != false) return@execute
+                state = state.copy(health = health)
+            }
+            notifyListeners()
         }
     }
 
     fun clearLog() {
-        state = state.copy(log = "")
+        synchronized(stateLock) { state = state.copy(log = "") }
         notifyListeners()
     }
 
@@ -130,17 +151,21 @@ class SandboxSessionService(private val project: Project) : Disposable {
     ): SyncDiagnosticResponse =
         SyncDomainDiagnosticRunner(project).run(profile, sync, preset)
 
-    fun fetchLedgerSnapshot(profile: SandboxProfile, participantName: String, token: String?): LedgerExplorerSnapshot {
-        val participant = profile.participants.firstOrNull { it.name == participantName }
+    fun fetchLedgerSnapshot(profile: SandboxProfile, participantName: String, token: String?, selectedParties: Set<String>? = null): LedgerExplorerSnapshot {
+        val session = snapshot()
+        check(session.canQuery(profile)) { "Start this sandbox before loading ledger data." }
+        val launched = session.launchedProfile ?: error("No launched profile")
+        val participant = launched.participants.firstOrNull { it.name == participantName }
             ?: throw ExecutionException("Participant $participantName is not part of profile ${profile.name}.")
-        return SandboxLedgerExplorer(projectRoot = DamlWorkspaceService.getInstance(project).projectRoot()).fetch(profile, participant, token)
+        return ledgerExplorer.fetch(launched, participant, token, session.sessionId, selectedParties)
     }
 
     private fun startProcess(
         profile: SandboxProfile,
         generated: SandboxGeneratedFiles,
         command: GeneralCommandLine,
-        workDirectory: String
+        workDirectory: String,
+        generation: Long
     ) {
         update(
             status = SandboxSessionStatus.STARTING,
@@ -151,26 +176,41 @@ class SandboxSessionService(private val project: Project) : Disposable {
         )
         command.withWorkDirectory(workDirectory).withCharset(StandardCharsets.UTF_8)
         RuntimeEnvironment.applyLocalTools(command, DamlProjectSettings.getInstance(project))
-        val processHandler = OSProcessHandler(command)
+        val processHandler = runtimeOperations.launch(command)
         bootstrapReady = false
         handler = processHandler
-        processHandler.addProcessListener(object : ProcessListener {
-            override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
-                if (event.text.contains("=== sandbox ready ===")) {
-                    bootstrapReady = true
-                }
-                appendLog(event.text)
+        processHandler.start(onText = { text ->
+            if (handler === processHandler && snapshot().sessionId == generation.toString()) {
+                if (text.contains("=== sandbox ready ===")) bootstrapReady = true
+                appendLog(text)
             }
-
-            override fun processTerminated(event: ProcessEvent) {
-                val next = if (event.exitCode == 0) SandboxSessionStatus.STOPPED else SandboxSessionStatus.FAILED
-                update(status = next, message = "Process exited with code ${event.exitCode}")
+        }, onExit = { code ->
+            if (handler === processHandler && snapshot().sessionId == generation.toString()) {
+                val next = if (code == 0) SandboxSessionStatus.STOPPED else SandboxSessionStatus.FAILED
+                update(status = next, message = "Process exited with code $code")
             }
         })
-        ProcessTerminatedListener.attach(processHandler)
-        processHandler.startNotify()
         update(status = SandboxSessionStatus.STARTING, message = "Process started; waiting for JSON APIs")
-        waitForReadiness(profile, processHandler)
+        waitForReadiness(profile, processHandler, generation)
+    }
+
+    private fun prepareLaunch(draft: SandboxProfile, cancelled: () -> Boolean): SandboxPreparedLaunch? {
+        val runtime = runtimeProfile(draft)
+        val validation = validator.validate(runtime, checkDarContents = false)
+        if (cancelled()) return null
+        check(validation.ok) { validation.checks.filterNot { it.ok }.joinToString("\n") { "${it.name}: ${it.detail}" } }
+        val generated = generator().generate(runtime)
+        if (cancelled()) return null
+        val command = localCantonCommand(generated)
+        val settings = DamlProjectSettings.getInstance(project)
+        RuntimeEnvironment.applyLocalTools(command, settings)
+        val versionCommand = GeneralCommandLine(command.exePath).withParameters(command.parametersList.list.dropLast(5) + "--version")
+            .withWorkDirectory(generated.localConfig.parent.toFile())
+        RuntimeEnvironment.applyLocalTools(versionCommand, settings)
+        val version = runCatching {
+            CapturingProcessHandler(versionCommand).runProcess(10_000).stdout.trim().lineSequence().firstOrNull().orEmpty()
+        }.getOrDefault("").ifBlank { "Unknown (version probe unavailable)" }
+        return if (cancelled()) null else SandboxPreparedLaunch(runtime, generated, command, version)
     }
 
     private fun localCantonCommand(generated: SandboxGeneratedFiles): GeneralCommandLine {
@@ -208,18 +248,19 @@ class SandboxSessionService(private val project: Project) : Disposable {
             ?: throw ExecutionException("canton.jar not found. Set the Canton binary path to canton.jar, or set CANTON_JAR/CANTON_SDK_VERSION.")
     }
 
-    private fun stopCurrent(wait: Boolean) {
+    private fun stopCurrent(wait: Boolean): Boolean {
         update(status = SandboxSessionStatus.STOPPING, message = "Stopping")
         val current = handler
-        if (current != null && !current.isProcessTerminated) {
-            current.destroyProcess()
-            if (wait && !current.waitFor(15_000)) {
+        if (current != null && !current.isTerminated) {
+            current.terminate()
+            if (wait && !current.waitFor(stopTimeoutMs)) {
                 update(status = SandboxSessionStatus.FAILED, message = "Timed out stopping Canton process; check Logs before retrying.")
-                return
+                return false
             }
         }
         handler = null
         bootstrapReady = false
+        return true
     }
 
     private fun httpOk(url: String): Boolean {
@@ -236,14 +277,15 @@ class SandboxSessionService(private val project: Project) : Disposable {
             httpClient.send(request, HttpResponse.BodyHandlers.ofString())
         }.getOrNull()
 
-    private fun waitForReadiness(profile: SandboxProfile, processHandler: OSProcessHandler) {
+    private fun waitForReadiness(profile: SandboxProfile, processHandler: SandboxManagedProcess, generation: Long) {
         val endpoints = EndpointBuilder.all(profile)
         val expectedJsonEndpoints = EndpointBuilder.participantEndpoints(profile).count { it.kind == "json" }
         val deadline = System.nanoTime() + readinessTimeout.toNanos()
         var latestHealth: List<HealthSnapshot> = emptyList()
 
-        while (!processHandler.isProcessTerminated && System.nanoTime() < deadline) {
-            latestHealth = jsonHealth(profile)
+        while (lifecycle.isCurrent(generation) && !processHandler.isTerminated && System.nanoTime() < deadline) {
+            latestHealth = runtimeOperations.probe(profile) { !lifecycle.isCurrent(generation) }
+            if (!lifecycle.isCurrent(generation)) return
             val readyCount = latestHealth.count { it.live && it.ready }
             val allReady = expectedJsonEndpoints == 0 || (latestHealth.size == expectedJsonEndpoints && readyCount == expectedJsonEndpoints)
             if (allReady && bootstrapReady) {
@@ -275,7 +317,7 @@ class SandboxSessionService(private val project: Project) : Disposable {
             }
         }
 
-        if (!processHandler.isProcessTerminated) {
+        if (lifecycle.isCurrent(generation) && !processHandler.isTerminated) {
             update(
                 status = SandboxSessionStatus.FAILED,
                 profile = profile,
@@ -290,21 +332,27 @@ class SandboxSessionService(private val project: Project) : Disposable {
         }
     }
 
-    private fun jsonHealth(profile: SandboxProfile): List<HealthSnapshot> =
+    private fun jsonHealth(profile: SandboxProfile, cancelled: () -> Boolean): List<HealthSnapshot> =
         EndpointBuilder.participantEndpoints(profile)
             .filter { it.kind == "json" }
-            .map { endpoint ->
+            .mapNotNull { endpoint ->
+                if (cancelled()) return@mapNotNull null
                 val live = httpOk(endpoint.url.trimEnd('/') + "/livez")
+                if (cancelled()) return@mapNotNull null
                 val ready = httpOk(endpoint.url.trimEnd('/') + "/readyz")
-                HealthSnapshot(endpoint, live, ready, "live=${live.statusText()} ready=${ready.statusText()}")
+                val connected = if (ready && !cancelled()) runCatching {
+                    val response = httpGet(endpoint.url.trimEnd('/') + "/v2/state/connected-synchronizers")
+                    if (response?.statusCode() !in 200..299) null else com.google.gson.JsonParser.parseString(response!!.body()).asJsonObject
+                        .getAsJsonArray("connectedSynchronizers").map { it.asJsonObject.get("synchronizerAlias").asString }.toSet()
+                }.getOrNull() else null
+                HealthSnapshot(endpoint, live, ready, "live=${live.statusText()} ready=${ready.statusText()}", connectedSynchronizers = connected)
             }
 
     private fun Boolean.statusText(): String = if (this) "ok" else "down"
 
     private fun appendLog(text: String) {
         if (text.isEmpty()) return
-        val combined = (state.log + text).takeLast(200_000)
-        state = state.copy(log = combined)
+        synchronized(stateLock) { state = state.copy(log = (state.log + text).takeLast(200_000)) }
         notifyListeners()
     }
 
@@ -316,14 +364,14 @@ class SandboxSessionService(private val project: Project) : Disposable {
         health: List<HealthSnapshot>? = null,
         message: String? = null
     ) {
-        state = state.copy(
+        synchronized(stateLock) { state = state.copy(
             profileId = profile?.id ?: state.profileId,
             status = status ?: state.status,
             generated = generated ?: state.generated,
             endpoints = endpoints ?: state.endpoints,
             health = health ?: state.health,
             message = message ?: state.message
-        )
+        ) }
         notifyListeners()
     }
 
@@ -335,7 +383,8 @@ class SandboxSessionService(private val project: Project) : Disposable {
     }
 
     override fun dispose() {
-        stopCurrent(wait = false)
+        lifecycle.close()
+        handler?.takeIf { !it.isTerminated }?.terminate()
         executor.shutdownNow()
     }
 

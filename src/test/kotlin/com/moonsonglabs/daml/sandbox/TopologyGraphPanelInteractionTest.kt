@@ -310,7 +310,7 @@ class TopologyGraphPanelInteractionTest {
     }
 
     @Test
-    fun `runtime flow only animates for running online topology`() {
+    fun `runtime topology does not imply animated transaction traffic`() {
         val profile = SandboxDefaults.newProfile(null)
         val participant = profile.participants.first()
         val panel = renderedPanel(profile)
@@ -323,7 +323,7 @@ class TopologyGraphPanelInteractionTest {
             listOf(HealthSnapshot(Endpoint(participant.id, participant.name, "json", "http://127.0.0.1:${participant.jsonPort}", participant.jsonPort), true, true, "ok")),
             2
         )
-        assertTrue(panel.isRuntimeFlowEnabledForTest())
+        assertFalse(panel.isRuntimeFlowEnabledForTest())
 
         panel.setRuntimeState(
             SandboxSessionStatus.RUNNING,
@@ -334,7 +334,7 @@ class TopologyGraphPanelInteractionTest {
     }
 
     @Test
-    fun `runtime flow gets a temporary boost when activity changes`() {
+    fun `activity changes do not start traffic animations`() {
         val profile = SandboxDefaults.newProfile(null)
         val panel = renderedPanel(profile)
 
@@ -342,8 +342,8 @@ class TopologyGraphPanelInteractionTest {
         val idleBoost = panel.flowBoostForTest()
         panel.setRuntimeState(SandboxSessionStatus.RUNNING, emptyList(), 2)
 
-        assertTrue(panel.isRuntimeFlowEnabledForTest())
-        assertTrue("Activity should temporarily speed up the wire flow", panel.flowBoostForTest() > idleBoost)
+        assertFalse(panel.isRuntimeFlowEnabledForTest())
+
     }
 
     @Test
@@ -356,7 +356,7 @@ class TopologyGraphPanelInteractionTest {
         panel.setRuntimeState(SandboxSessionStatus.RUNNING, emptyList(), 2)
         repaint(panel)
 
-        assertTrue(panel.isRuntimeFlowEnabledForTest())
+        assertFalse(panel.isRuntimeFlowEnabledForTest())
     }
 
     @Test

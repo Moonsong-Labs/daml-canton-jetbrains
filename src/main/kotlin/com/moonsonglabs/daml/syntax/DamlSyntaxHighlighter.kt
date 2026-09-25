@@ -73,7 +73,7 @@ class DamlSyntaxHighlighter : SyntaxHighlighterBase() {
         val CONTROL_KEYWORD = TextAttributesKey.createTextAttributesKey(
             "DAML_CONTROL_KEYWORD", DefaultLanguageHighlighterColors.KEYWORD)
         val TYPE_NAME = TextAttributesKey.createTextAttributesKey(
-            "DAML_TYPE_NAME", DefaultLanguageHighlighterColors.FUNCTION_DECLARATION)
+            "DAML_TYPE_NAME", DefaultLanguageHighlighterColors.CLASS_NAME)
         val PRELUDE_TYPE = TextAttributesKey.createTextAttributesKey(
             "DAML_PRELUDE_TYPE", TYPE_NAME)
         val IDENTIFIER = TextAttributesKey.createTextAttributesKey(
@@ -82,6 +82,8 @@ class DamlSyntaxHighlighter : SyntaxHighlighterBase() {
             "DAML_MODULE_NAME", DefaultLanguageHighlighterColors.CLASS_REFERENCE)
         val DECLARATION_NAME = TextAttributesKey.createTextAttributesKey(
             "DAML_DECLARATION_NAME", DefaultLanguageHighlighterColors.FUNCTION_DECLARATION)
+        val FUNCTION_CALL = TextAttributesKey.createTextAttributesKey(
+            "DAML_FUNCTION_CALL", DefaultLanguageHighlighterColors.FUNCTION_DECLARATION)
         val CHOICE_NAME = TextAttributesKey.createTextAttributesKey(
             "DAML_CHOICE_NAME", DefaultLanguageHighlighterColors.INSTANCE_METHOD)
         val FIELD_NAME = TextAttributesKey.createTextAttributesKey(

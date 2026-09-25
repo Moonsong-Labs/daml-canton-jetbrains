@@ -53,7 +53,27 @@ class ScriptResultsPanel(private val project: Project) : JPanel(BorderLayout()),
         border = javax.swing.BorderFactory.createEmptyBorder(4, 8, 4, 8)
     }
 
+    private var resourceUri: String? = null
+    private val sourceButton = javax.swing.JButton("Open source").apply {
+        isEnabled = false
+        addActionListener {
+            val params = resourceUri?.substringAfter('?')?.split('&')?.associate {
+                val pair = it.split('=', limit = 2)
+                pair[0] to java.net.URLDecoder.decode(pair.getOrElse(1) { "" }, StandardCharsets.UTF_8)
+            }.orEmpty()
+            val path = params["file"] ?: return@addActionListener
+            val file = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(path) ?: return@addActionListener
+            val text = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(file)?.text.orEmpty()
+            val offset = DamlScriptResource.findScripts(text).find { it.name == params["top-level-decl"] }?.startOffset ?: 0
+            com.intellij.openapi.fileEditor.OpenFileDescriptor(project, file, offset).navigate(true)
+        }
+    }
+
+    fun setResourceUri(uri: String) { resourceUri = uri; sourceButton.isEnabled = true }
+
     init {
+        ApplicationManager.getApplication().messageBus.connect(this).subscribe(com.intellij.ide.ui.LafManagerListener.TOPIC,
+            com.intellij.ide.ui.LafManagerListener { postToWebview(mapOf("command" to "set_appearance", "value" to appearance())) })
         if (!JBCefApp.isSupported()) {
             browser = null
             jsQuery = null
@@ -78,7 +98,9 @@ class ScriptResultsPanel(private val project: Project) : JPanel(BorderLayout()),
                     flushPendingMessages()
                 }
             }, b.cefBrowser)
-            add(titleLabel, BorderLayout.NORTH)
+            add(JPanel(BorderLayout()).apply {
+                add(titleLabel, BorderLayout.CENTER); add(sourceButton, BorderLayout.EAST)
+            }, BorderLayout.NORTH)
             add(b.component, BorderLayout.CENTER)
             loadInitialHtml()
         }
@@ -158,7 +180,8 @@ class ScriptResultsPanel(private val project: Project) : JPanel(BorderLayout()),
                 "selected" to s.selectedView,
                 "showArchived" to s.showArchived,
                 "showDetailedDisclosure" to s.showDetailedDisclosure,
-                "theme" to webviewThemeClass()
+                "theme" to webviewThemeClass(),
+                "appearance" to appearance()
             )
         )
         postToWebview(msg)
@@ -185,6 +208,18 @@ class ScriptResultsPanel(private val project: Project) : JPanel(BorderLayout()),
     private fun dispatchProgress(millisecondsPassed: Long) {
         val msg = mapOf("command" to "set_progress", "value" to millisecondsPassed)
         postToWebview(msg)
+    }
+
+    private fun appearance(): Map<String, String> {
+        fun color(key: String, fallback: Color): String {
+            val color = UIManager.getColor(key) ?: fallback
+            return "#%02x%02x%02x".format(color.red, color.green, color.blue)
+        }
+        val font = UIManager.getFont("Label.font") ?: titleLabel.font
+        return mapOf("theme" to webviewThemeClass(), "background" to color("Panel.background", Color.WHITE),
+            "panel" to color("Panel.background", Color.WHITE), "foreground" to color("Label.foreground", Color.BLACK),
+            "muted" to color("ContextHelp.foreground", if (webviewThemeClass() == "ide-dark") Color(0xAAB1BE) else Color(0x626C7A)), "border" to color("Component.borderColor", Color.GRAY),
+            "fontFamily" to font.family, "fontSize" to "${font.size}px")
     }
 
     private fun webviewThemeClass(): String {

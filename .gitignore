@@ -14,3 +14,5 @@ local.properties
 gradle-app.setting
 !gradle-wrapper.jar
 .DS_Store
+src/test/webview/node_modules/
+src/test/resources/webview/disclosure-project/.daml/

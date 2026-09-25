@@ -67,43 +67,12 @@ internal class DamlChoiceReference(
 @Service(Service.Level.PROJECT)
 class DamlChoiceResolver(private val project: Project) {
     fun resolveChoiceUse(use: DamlChoiceNames.ChoiceUse, contextFile: VirtualFile?): PsiElement? {
-        val psiFile = contextFile?.let { PsiManager.getInstance(project).findFile(it) }
-        val symbol = psiFile?.text?.let { DamlModuleNames.symbolAt(it, use.startOffset) }
-        val imports = psiFile?.text?.let(DamlModuleNames::imports).orEmpty()
-
-        symbol?.qualifier?.let { qualifier ->
-            imports.firstOrNull { it.qualifierMatches(qualifier) }?.let { import ->
-                return DamlModuleResolver.getInstance(project).resolveSymbol(import.moduleName, use.name, contextFile)
-            }
-            return DamlModuleResolver.getInstance(project).resolveSymbol(qualifier, use.name, contextFile)
-        }
-
-        resolveChoiceInFile(use.name, contextFile)?.let { return it }
-        imports
-            .asSequence()
-            .filter { !it.qualified && it.exposes(use.name) }
-            .firstNotNullOfOrNull { import ->
-                DamlModuleResolver.getInstance(project).resolveSymbol(import.moduleName, use.name, contextFile)
-            }
-            ?.let { return it }
-
-        return resolveChoice(use.name, contextFile)
+        val file = contextFile?.let { PsiManager.getInstance(project).findFile(it) } ?: return null
+        val reference = DamlModuleResolver.referenceAt(file, use.startOffset) ?: return null
+        return DamlModuleResolver.getInstance(project).resolveSymbolReference(reference, contextFile)
     }
 
-    fun resolveChoice(choiceName: String, contextFile: VirtualFile?): PsiElement? {
-        resolveChoiceInFile(choiceName, contextFile)?.let { return it }
-
-        val workspace = DamlWorkspaceService.getInstance(project).workspaceFor(contextFile)
-        return choiceDeclarations()
-            .filter { it.name == choiceName }
-            .sortedWith(compareBy<ChoiceTarget> {
-                val fileWorkspace = DamlWorkspaceService.getInstance(project).workspaceFor(it.file)
-                if (workspace != null && fileWorkspace == workspace) 0 else 1
-            }.thenBy { if (it.file == contextFile) 0 else 1 }.thenBy { it.file.path.length }.thenBy { it.file.path })
-            .firstNotNullOfOrNull { target ->
-                resolveChoiceInFile(choiceName, target.file)
-            }
-    }
+    fun resolveChoice(choiceName: String, contextFile: VirtualFile?): PsiElement? = resolveChoiceInFile(choiceName, contextFile)
 
     fun choiceNames(): List<String> =
         choiceDeclarations().map { it.name }.distinct().sorted()
@@ -125,7 +94,7 @@ class DamlChoiceResolver(private val project: Project) {
     private fun resolveChoiceInFile(choiceName: String, file: VirtualFile?): PsiElement? {
         val psiFile = file?.let { PsiManager.getInstance(project).findFile(it) } ?: return null
         val declaration = DamlChoiceNames.declarationNamed(psiFile.text, choiceName) ?: return null
-        return psiFile.findElementAt(declaration.startOffset)
+        return com.moonsonglabs.daml.lang.DamlNamedElement.at(psiFile, declaration.startOffset)
     }
 
     private fun shouldIndex(file: VirtualFile): Boolean {

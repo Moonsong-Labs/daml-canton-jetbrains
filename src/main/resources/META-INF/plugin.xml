@@ -9,7 +9,8 @@
         <h3>Features</h3>
         <ul>
           <li>Syntax highlighting for <code>.daml</code> files</li>
-          <li>Diagnostics, hover, go-to-definition, completion, document symbols, rename — via the official DAML LSP</li>
+          <li>Diagnostics, hover, go-to-definition, completion — via the official DAML LSP</li>
+          <li>Native symbol navigation, structure, find usages, and rename previews</li>
           <li>Script Results panel rendered in a JCEF webview, mirroring the VSCode experience</li>
           <li><code>daml.yaml</code> JSON-schema completion</li>
           <li>Snippets for <code>template</code>, <code>choice</code>, <code>signatory</code>, <code>script</code>, &hellip;</li>
@@ -61,6 +62,7 @@
     <resource-bundle>messages.DamlBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
+        <fileType name="ARCHIVE" extensions="dar"/>
 	        <fileType
 	            name="DAML"
             language="DAML"
@@ -96,26 +98,30 @@
 
         <psi.referenceContributor language="DAML"
                                   implementation="com.moonsonglabs.daml.navigation.DamlModuleReferenceContributor"
-                                  order="first"/>
+                                  />
 
-        <psi.referenceContributor language="DAML"
-                                  implementation="com.moonsonglabs.daml.navigation.DamlChoiceReferenceContributor"/>
+        <lang.braceMatcher language="DAML" implementationClass="com.moonsonglabs.daml.editor.DamlBraceMatcher"/>
+        <lang.foldingBuilder language="DAML" implementationClass="com.moonsonglabs.daml.editor.DamlFoldingBuilder"/>
+        <extendWordSelectionHandler implementation="com.moonsonglabs.daml.editor.DamlSelectionHandler"/>
+        <platform.backend.documentation.targetProvider order="first" implementation="com.moonsonglabs.daml.editor.DamlDocumentationTargetProvider"/>
+        <lang.documentationProvider language="DAML" implementationClass="com.moonsonglabs.daml.editor.DamlDocumentationProvider"/>
+        <codeInsight.parameterNameHints language="DAML" implementationClass="com.moonsonglabs.daml.editor.DamlParameterHints"/>
+        <renamePsiElementProcessor implementation="com.moonsonglabs.daml.navigation.DamlRenameProcessor"/>
 
-        <referencesSearch implementation="com.moonsonglabs.daml.navigation.DamlChoiceReferencesSearch"/>
-
-        <findUsagesHandlerFactory implementation="com.moonsonglabs.daml.navigation.DamlChoiceFindUsagesHandlerFactory"
-                                  order="first"/>
-        <usageTargetProvider implementation="com.moonsonglabs.daml.navigation.DamlChoiceUsageTargetProvider"
-                             order="first"/>
+        <definitionsScopedSearch implementation="com.moonsonglabs.daml.navigation.DamlImplementationSearch"/>
+        <codeInsight.lineMarkerProvider language="DAML" implementationClass="com.moonsonglabs.daml.editor.DamlRelatedSymbolsMarker"/>
+        <codeInsight.daemonBoundCodeVisionProvider implementation="com.moonsonglabs.daml.editor.DamlUsageCodeVision"/>
+        <typeDeclarationProvider implementation="com.moonsonglabs.daml.navigation.DamlTypeDeclarationProvider"/>
+        <findUsagesHandlerFactory implementation="com.moonsonglabs.daml.navigation.DamlChoiceFindUsagesHandlerFactory"/>
+        <gotoSymbolContributor implementation="com.moonsonglabs.daml.navigation.DamlSymbolContributor"/>
+        <fileBasedIndex implementation="com.moonsonglabs.daml.lang.DamlSymbolIndex"/>
+        <referencesSearch implementation="com.moonsonglabs.daml.navigation.DamlSymbolReferencesSearch"/>
 
         <lang.findUsagesProvider language="DAML"
                                  implementationClass="com.moonsonglabs.daml.navigation.DamlFindUsagesProvider"/>
 
         <gotoDeclarationHandler implementation="com.moonsonglabs.daml.navigation.DamlGotoDeclarationHandler"
                                 order="first"/>
-
-        <lang.directNavigationProvider implementation="com.moonsonglabs.daml.navigation.DamlDirectNavigationProvider"
-                                       order="first"/>
 
         <codeInsight.lineMarkerProvider language="DAML"
                                         implementationClass="com.moonsonglabs.daml.scriptresults.DamlScriptLineMarkerProvider"/>
@@ -132,6 +138,8 @@
             nonDefaultProject="false"/>
 
 	        <colorSettingsPage implementation="com.moonsonglabs.daml.syntax.DamlColorSettingsPage"/>
+        <additionalTextAttributes scheme="Default" file="colorSchemes/DamlDefault.xml"/>
+        <additionalTextAttributes scheme="Darcula" file="colorSchemes/DamlDarcula.xml"/>
 
 	        <toolWindow id="DAML Script Results"
 	                    anchor="bottom"
@@ -165,6 +173,13 @@
     </extensions>
 
     <actions>
+        <action id="DAML.ToggleUsageCounts" class="com.moonsonglabs.daml.editor.DamlToggleUsageCounts" text="Show DAML Usage Counts">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+        <action id="DAML.EditorStatus" class="com.moonsonglabs.daml.actions.DamlEditorStatusAction"
+                text="DAML Editor Status" description="Show package, SDK, server state and negotiated editor capabilities">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
         <action id="DAML.OpenDocs"
                 class="com.moonsonglabs.daml.actions.OpenDamlDocsAction"
                 text="Open DAML Documentation"
@@ -183,8 +198,8 @@
 	        </action>
 	        <action id="DAML.ShowScriptResultsForCurrentScript"
 	                class="com.moonsonglabs.daml.actions.RunDamlScriptResultsAction"
-	                text="Show DAML Script Results"
-	                description="Run the DAML script under the caret and show the visual Script Results panel">
+	                text="IDE Script Results"
+	                description="Inspect the selected Daml script using the IDE language server; CLI Run Script is configured separately">
 	            <add-to-group group-id="ToolsMenu" anchor="last"/>
 	            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
 	        </action>

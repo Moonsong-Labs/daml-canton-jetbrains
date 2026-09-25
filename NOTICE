@@ -5,3 +5,11 @@ This product includes assets and behavior ported from the Digital Asset DAML
 project, which is licensed under the Apache License 2.0.
 
 Upstream project: https://github.com/digital-asset/daml
+
+The plugin logo uses the original Daml Studio image from Digital Asset:
+https://github.com/digital-asset/daml/blob/main/sdk/compiler/daml-extension/images/daml-studio.png
+Upstream Git blob: 8db22ab27054b57b29744e550c87dc43ea4ca273
+SHA-256: 09f79b23390e74fe778adcd6fe59b914e44c1134d5dae3fd7247aea716a43417
+The PNG is embedded unchanged in the light and dark SVG logo containers.
+Daml and its logo are trademarks of Digital Asset (Switzerland) GmbH.
+Digital Asset is not affiliated with, and has not sponsored or endorsed, this plugin.

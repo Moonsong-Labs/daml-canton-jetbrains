@@ -34,10 +34,11 @@ class DamlRunConfiguration(
     var workspacePath: String = ""
     var filePath: String = ""
     var scriptName: String = ""
+    var darPath: String = ""
     var extraArguments: String = ""
 
     override fun getConfigurationEditor(): SettingsEditor<out com.intellij.execution.configurations.RunConfiguration> =
-        DamlRunSettingsEditor()
+        DamlRunSettingsEditor(project)
 
     override fun getState(executor: Executor, environment: ExecutionEnvironment): RunProfileState =
         object : CommandLineState(environment) {
@@ -53,6 +54,13 @@ class DamlRunConfiguration(
             }
         }
 
+    override fun checkConfiguration() {
+        if (command == DamlCommand.SCRIPT && scriptName.isBlank())
+            throw com.intellij.execution.configurations.RuntimeConfigurationError("Choose a script (Module:script).")
+        if (command == DamlCommand.SCRIPT && darPath.isBlank() && !extraArguments.contains("--dar"))
+            throw com.intellij.execution.configurations.RuntimeConfigurationError("Choose a compiled DAR for CLI Run Script.")
+    }
+
     fun buildCommandLine(): List<String> {
         val settings = DamlProjectSettings.getInstance(project)
         val workspace = runCatching { resolveWorkspace() }.getOrNull()
@@ -65,6 +73,7 @@ class DamlRunConfiguration(
             DamlCommand.TEST -> args += "test"
             DamlCommand.SCRIPT -> {
                 args += "script"
+                if (darPath.isNotBlank()) { args += "--dar"; args += darPath }
                 if (scriptName.isNotBlank()) {
                     args += "--script-name"
                     args += scriptName
@@ -94,6 +103,7 @@ class DamlRunConfiguration(
         JDOMExternalizerUtil.writeField(element, "workspacePath", workspacePath)
         JDOMExternalizerUtil.writeField(element, "filePath", filePath)
         JDOMExternalizerUtil.writeField(element, "scriptName", scriptName)
+        JDOMExternalizerUtil.writeField(element, "darPath", darPath)
         JDOMExternalizerUtil.writeField(element, "extraArguments", extraArguments)
     }
 
@@ -105,6 +115,7 @@ class DamlRunConfiguration(
         workspacePath = JDOMExternalizerUtil.readField(element, "workspacePath") ?: ""
         filePath = JDOMExternalizerUtil.readField(element, "filePath") ?: ""
         scriptName = JDOMExternalizerUtil.readField(element, "scriptName") ?: ""
+        darPath = JDOMExternalizerUtil.readField(element, "darPath") ?: ""
         extraArguments = JDOMExternalizerUtil.readField(element, "extraArguments") ?: ""
     }
 }
@@ -112,6 +123,8 @@ class DamlRunConfiguration(
 enum class DamlCommand(val presentableName: String) {
     BUILD("Build"),
     TEST("Test"),
-    SCRIPT("Script"),
-    START("Start")
+    SCRIPT("CLI Run Script"),
+    START("Start");
+
+    override fun toString(): String = presentableName
 }

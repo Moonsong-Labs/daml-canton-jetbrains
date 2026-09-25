@@ -1,6 +1,6 @@
 package com.moonsonglabs.daml.terminal
 
-import com.moonsonglabs.daml.sdk.DamlSdkVersions
+import com.moonsonglabs.daml.settings.DamlProjectSettings
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -11,14 +11,14 @@ class DamlTerminalCustomizerTest {
     fun prependsDamlAndDpmDirectoriesToTerminalPath() {
         val envs = mutableMapOf("PATH" to "/usr/bin")
 
-        DamlTerminalCustomizer.prependLocalToolPath(null, envs)
+        DamlTerminalCustomizer.prependLocalToolPath(DamlProjectSettings().apply { selectedSdkVersion = SDK_VERSION }, envs)
 
         val path = envs.getValue("PATH").split(File.pathSeparator)
         val home = System.getProperty("user.home")
         val javaHome = System.getProperty("java.home")
         assertTrue(path.indexOf(Path.of(home, ".dpm", "bin").toString()) < path.indexOf("/usr/bin"))
         assertTrue(path.indexOf(Path.of(home, ".daml", "bin").toString()) < path.indexOf("/usr/bin"))
-        assertTrue(path.indexOf(Path.of(home, ".daml", "sdk", "${DamlSdkVersions.DEFAULT}", "daml").toString()) < path.indexOf("/usr/bin"))
+        assertTrue(path.indexOf(Path.of(home, ".daml", "sdk", SDK_VERSION, "daml").toString()) < path.indexOf("/usr/bin"))
         assertTrue(path.indexOf(Path.of(javaHome, "bin").toString()) < path.indexOf("/usr/bin"))
         assertTrue(envs["JAVA_HOME"] == javaHome)
     }
@@ -27,7 +27,7 @@ class DamlTerminalCustomizerTest {
     fun setsJetBrainsShellIntegrationPathPrepend() {
         val envs = mutableMapOf("PATH" to "/usr/bin")
 
-        DamlTerminalCustomizer.prependLocalToolPath(null, envs)
+        DamlTerminalCustomizer.prependLocalToolPath(DamlProjectSettings().apply { selectedSdkVersion = SDK_VERSION }, envs)
 
         val prefix = envs.getValue("_INTELLIJ_FORCE_PREPEND_PATH")
         val home = System.getProperty("user.home")
@@ -35,7 +35,11 @@ class DamlTerminalCustomizerTest {
         assertTrue(prefix.endsWith(File.pathSeparator))
         assertTrue(prefix.contains(Path.of(home, ".dpm", "bin").toString()))
         assertTrue(prefix.contains(Path.of(home, ".daml", "bin").toString()))
-        assertTrue(prefix.contains(Path.of(home, ".daml", "sdk", "${DamlSdkVersions.DEFAULT}", "daml").toString()))
+        assertTrue(prefix.contains(Path.of(home, ".daml", "sdk", SDK_VERSION, "daml").toString()))
         assertTrue(prefix.contains(Path.of(javaHome, "bin").toString()))
+    }
+
+    companion object {
+        private const val SDK_VERSION = "3.5.9"
     }
 }

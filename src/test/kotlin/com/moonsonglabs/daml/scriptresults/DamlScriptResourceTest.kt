@@ -51,4 +51,13 @@ second = script do
             DamlScriptResource.uri("/tmp/My Project/Main.daml", "myScript")
         )
     }
+
+    @Test
+    fun `resolves encoded source path without including declaration or query separators`() {
+        val path = "/tmp/My Project/Pool + grant & tests/Pruebaé.daml"
+        assertEquals(path, DamlScriptResource.filePath(DamlScriptResource.uri(path, "testOne")))
+        assertNull(DamlScriptResource.filePath("daml://compiler?top-level-decl=testOne"))
+        assertNull(DamlScriptResource.filePath("daml://compiler?file=%XX"))
+        assertNull(DamlScriptResource.filePath("https://example.test/?file=/tmp/Test.daml"))
+    }
 }

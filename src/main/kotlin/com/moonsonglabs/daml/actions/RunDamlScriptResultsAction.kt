@@ -4,6 +4,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.psi.PsiManager
+import com.intellij.openapi.ui.Messages
 import com.moonsonglabs.daml.DamlFileType
 import com.moonsonglabs.daml.DamlNotifier
 import com.moonsonglabs.daml.scriptresults.DamlScriptResource
@@ -20,7 +21,14 @@ class RunDamlScriptResultsAction : AnAction() {
         }
 
         val offset = e.getData(CommonDataKeys.EDITOR)?.caretModel?.offset ?: 0
-        val script = DamlScriptResource.scriptAt(psiFile.text, offset)
+        val candidates = DamlScriptResource.findScripts(psiFile.text)
+        val script = DamlScriptResource.scriptAt(psiFile.text, offset) ?: when (candidates.size) {
+            0 -> null
+            1 -> candidates.single()
+            else -> Messages.showEditableChooseDialog("Choose a script for IDE Script Results.", "IDE Script Results", null,
+                candidates.map { it.name }.toTypedArray(), candidates.first().name, null)
+                ?.let { name -> candidates.find { it.name == name } }
+        }
         if (script == null) {
             DamlNotifier.warn(project, "No DAML script declaration found in ${file.name}.")
             return

@@ -20,11 +20,7 @@ internal object DamlChoiceUsageTargets {
 
         targetNearRange(file, element.textRange)?.let { return it }
 
-        var current: PsiElement? = element
-        while (current != null && current != file) {
-            targetOnLine(file, current.textRange.startOffset)?.let { return it }
-            current = current.parent
-        }
+        targetOnLine(file, element.textRange.startOffset)?.let { return it }
 
         return null
     }
@@ -73,7 +69,7 @@ internal object DamlChoiceUsageTargets {
 
     private fun DamlChoiceNames.ChoiceDeclaration.toTarget(file: PsiFile): DamlChoiceUsageTarget? {
         val virtualFile = file.virtualFile ?: return null
-        val element = file.findElementAt(startOffset) ?: return null
+        val element = com.moonsonglabs.daml.lang.DamlNamedElement.at(file, startOffset) ?: return null
         return DamlChoiceUsageTarget(name, virtualFile, startOffset, element)
     }
 }

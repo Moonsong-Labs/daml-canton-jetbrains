@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 2,
+  "id": "simulator-acceptance",
+  "name": "Two-participant acceptance",
+  "workspacePath": ".",
+  "generatedPath": ".canton-sandboxes/acceptance",
+  "cantonVersion": "3.4.11",
+  "portBase": 22000,
+  "participants": [
+    {
+      "id": "issuer",
+      "name": "issuer",
+      "ledgerPort": 22007,
+      "adminPort": 22008,
+      "jsonPort": 22009
+    },
+    {
+      "id": "investor",
+      "name": "investor",
+      "ledgerPort": 22010,
+      "adminPort": 22011,
+      "jsonPort": 22012
+    }
+  ],
+  "synchronizers": [
+    {
+      "id": "global",
+      "name": "global",
+      "sequencer": {
+        "id": "globalSequencer",
+        "name": "globalSequencer",
+        "publicPort": 22001,
+        "adminPort": 22002
+      },
+      "mediator": {
+        "id": "globalMediator",
+        "name": "globalMediator",
+        "adminPort": 22003
+      }
+    },
+    {
+      "id": "settlement",
+      "name": "settlement",
+      "sequencer": {
+        "id": "settlementSequencer",
+        "name": "settlementSequencer",
+        "publicPort": 22004,
+        "adminPort": 22005
+      },
+      "mediator": {
+        "id": "settlementMediator",
+        "name": "settlementMediator",
+        "adminPort": 22006
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "participantId": "issuer",
+      "synchronizerId": "global",
+      "connected": true
+    },
+    {
+      "participantId": "issuer",
+      "synchronizerId": "settlement",
+      "connected": true
+    },
+    {
+      "participantId": "investor",
+      "synchronizerId": "global",
+      "connected": true
+    },
+    {
+      "participantId": "investor",
+      "synchronizerId": "settlement",
+      "connected": true
+    }
+  ],
+  "darAssignments": [
+    {
+      "darPath": ".daml/dist/simulator-acceptance-0.1.0.dar",
+      "participantIds": [
+        "issuer",
+        "investor"
+      ]
+    }
+  ],
+  "partyAllocations": [
+    {
+      "partyHint": "Alice",
+      "participantId": "issuer",
+      "synchronizerId": "global"
+    },
+    {
+      "partyHint": "Alice",
+      "participantId": "issuer",
+      "synchronizerId": "settlement"
+    },
+    {
+      "partyHint": "Bob",
+      "participantId": "investor",
+      "synchronizerId": "global"
+    },
+    {
+      "partyHint": "Bob",
+      "participantId": "investor",
+      "synchronizerId": "settlement"
+    }
+  ],
+  "topologyPositions": []
+}

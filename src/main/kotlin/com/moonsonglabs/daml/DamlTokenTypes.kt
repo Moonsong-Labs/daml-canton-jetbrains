@@ -55,6 +55,8 @@ object DamlTokenTypes {
 
     @JvmField val BAD_CHARACTER = DamlTokenType("BAD_CHARACTER")
 
+    @JvmField val SYMBOL_NAME = DamlTokenType("SYMBOL_NAME")
+    @JvmField val DECLARATION = DamlTokenType("DECLARATION")
     @JvmField val MODULE_DECL = DamlTokenType("MODULE_DECL")
     @JvmField val IMPORT_DECL = DamlTokenType("IMPORT_DECL")
     @JvmField val TEMPLATE_DECL = DamlTokenType("TEMPLATE_DECL")

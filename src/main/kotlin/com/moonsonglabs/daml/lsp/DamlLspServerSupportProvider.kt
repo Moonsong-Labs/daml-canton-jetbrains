@@ -43,7 +43,8 @@ class DamlLspServerSupportProvider : LspServerSupportProvider {
         file: VirtualFile,
         serverStarter: LspServerSupportProvider.LspServerStarter
     ) {
-        if (!isDamlFile(file)) return
+        if (!isDamlFile(file) || file.fileSystem.protocol != "file") return
+        project.getService(com.moonsonglabs.daml.workspace.DamlWorkspaceChanges::class.java)
 
         val workspaceRoot = DamlWorkspaceService.getInstance(project)
             .workspaceFor(file)
@@ -102,7 +103,7 @@ private class DamlLspServerDescriptor(
                 .forEach(::add)
             add("+RTS")
             add("-M4G")
-            add("-N")
+            add("-N2")
             add("-RTS")
         }
 
@@ -183,9 +184,7 @@ private class DamlLspServerListener(
     private val project: Project,
     private val descriptor: LspServerDescriptor
 ) : LspServerListener {
-    private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
-        Thread(r, "DAML-keepAlive").apply { isDaemon = true }
-    }
+    private val scheduler = com.intellij.util.concurrency.AppExecutorUtil.getAppScheduledExecutorService()
     @Volatile private var keepAliveTask: ScheduledFuture<*>? = null
 
     override fun serverInitialized(params: InitializeResult) {
@@ -194,7 +193,6 @@ private class DamlLspServerListener(
 
     override fun serverStopped(shutdownNormally: Boolean) {
         cancelKeepAlive()
-        scheduler.shutdownNow()
     }
 
     private fun startKeepAlive() {
@@ -210,8 +208,7 @@ private class DamlLspServerListener(
     private fun tick() {
         if (project.isDisposed) {
             cancelKeepAlive()
-            scheduler.shutdownNow()
-            return
+                return
         }
 
         try {
@@ -223,7 +220,8 @@ private class DamlLspServerListener(
             server.sendRequestSync(120_000) { lsp ->
                 (lsp as DamlServerInterface).keepAlive()
             }
-        } catch (t: Throwable) {
+        } catch (t: Exception) {
+            if (t is com.intellij.openapi.progress.ProcessCanceledException || t is java.util.concurrent.CancellationException || t is InterruptedException) return
             thisLogger().warn("DAML keep-alive failed; restarting server", t)
             DamlNotifier.warn(project, DamlBundle.message("daml.notification.server.unresponsive"))
             LspServerManager.getInstance(project)

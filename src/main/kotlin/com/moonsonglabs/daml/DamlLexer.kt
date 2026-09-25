@@ -6,8 +6,8 @@ import com.intellij.psi.tree.IElementType
 /**
  * Hand-rolled lexer for DAML.
  *
- * Why hand-rolled: a JFlex+GrammarKit pipeline would be overkill for v1; the LSP server
- * provides semantic tokens for fine-grained highlighting. This lexer covers first-paint
+ * Why hand-rolled: a JFlex+GrammarKit pipeline would be overkill for v1; the native source model
+ * provides contextual highlighting independently of language-server capabilities. This lexer covers first-paint
  * highlighting (instant, before LSP responds) and the structural needs of IntelliJ's
  * comment/string/word handling.
  *
@@ -208,7 +208,9 @@ class DamlLexer : LexerBase() {
 
     private fun isLineCommentStart(): Boolean {
         if (buffer[pos] != '-' || peek(1) != '-') return false
-        val next = peek(2)
+        var cursor = 2
+        while (peek(cursor) == '-') cursor++
+        val next = peek(cursor)
         return next == '\u0000' || next == '\n' || next == '\r' || next == '|' || next.isWhitespace() || !isOpChar(next)
     }
 

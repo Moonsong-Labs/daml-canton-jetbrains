@@ -94,6 +94,33 @@ body.ide-dark {
 }
 
 body.ide-light {
+  color-scheme: light dark;
+  --daml-bg: #f5f6f8;
+  --daml-bg-elevated: #ffffff;
+  --daml-bg-panel: #f9fafb;
+  --daml-bg-subtle: #eef1f5;
+  --daml-bg-hover: #edf5ff;
+  --daml-border: #d7dbe2;
+  --daml-border-strong: #b9c0ca;
+  --daml-fg: #20242b;
+  --daml-fg-muted: #626c7a;
+  --daml-fg-soft: #7b8492;
+  --daml-accent: #2f6feb;
+  --daml-accent-soft: #e5f0ff;
+  --daml-accent-fg: #ffffff;
+  --daml-success: #227447;
+  --daml-success-soft: #e7f5ec;
+  --daml-warning: #9a6700;
+  --daml-warning-soft: #fff3cd;
+  --daml-danger: #b42318;
+  --daml-danger-soft: #fde8e6;
+  --daml-shadow: rgba(20, 28, 40, 0.08);
+  --daml-party-0: #276ef1;
+  --daml-party-1: #0f766e;
+  --daml-party-2: #8b5cf6;
+  --daml-party-3: #b45309;
+  --daml-party-4: #be185d;
+  --daml-party-5: #15803d;
   color-scheme: light;
 }
 
@@ -397,20 +424,6 @@ body.empty .empty-message {
   min-height: auto;
   overflow: visible;
   padding: 10px;
-}
-
-/* Tx Tree: let the Transactions panel be dragged wider/narrower. The first grid
-   track is `auto` so it follows the pane's resized width. */
-.split-view.tx-view {
-  grid-template-columns: auto minmax(0, 1fr);
-}
-
-.tx-view .master-pane {
-  width: 34%;
-  min-width: 240px;
-  max-width: 70%;
-  overflow: auto;
-  resize: horizontal;
 }
 
 .pane-title {
@@ -1335,6 +1348,18 @@ body.empty .empty-message {
   color: var(--daml-fg-muted);
 }
 
+.disclosure-help {
+  margin: 8px 0;
+  max-width: 100ch;
+  line-height: 1.5;
+}
+
+.disclosure-matrix .matrix-visible {
+  background: var(--daml-bg-subtle);
+  color: var(--daml-fg);
+  text-align: center;
+}
+
 .disclosure-matrix .matrix-signatory,
 .disclosure-matrix .matrix-observer {
   background: color-mix(in srgb, var(--daml-success-soft) 72%, var(--daml-bg-panel));
@@ -1583,4 +1608,140 @@ body.hidden_disclosure .raw-rendered td.disclosed.disclosure:after {
   .detail-pane {
     max-height: none;
   }
+}
+
+/* IDE surfaces and compact progressive inspection. Accent colors carry event identity. */
+html { font-size: 13px; }
+body { font-family: var(--ide-font-family, -apple-system), BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; font-size: var(--ide-font-size, 13px); }
+.explorer-header, .panel, .summary-card, .inspector, .tx-detail-card { box-shadow: none; }
+.panel, .inspector, .tx-detail-card { border-radius: 4px; }
+.tx-node { border-radius: 3px; }
+.tx-node > summary { padding: 8px; min-height: 32px; }
+.tx-node-body { padding: 8px 12px; }
+.tx-detail-grid { gap: 12px; }
+.tx-detail-card { border: 0; padding: 0; background: transparent; }
+.tx-children { border-left: 1px solid var(--daml-border); }
+.advanced-inspection { position: relative; align-self: center; margin-left: auto; font-size: 0.92em; }
+.advanced-inspection summary { cursor: pointer; padding: 8px; }
+.advanced-inspection > button { position: absolute; right: 0; white-space: nowrap; z-index: 10; background: var(--daml-bg-panel); }
+[hidden] { display: none !important; }
+button:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px solid var(--daml-accent); outline-offset: 2px; }
+@media (max-width: 720px) {
+  .tabs { flex-wrap: wrap; }
+  .toolbar { flex-wrap: wrap; }
+  .search { flex-basis: 100%; }
+  .split-view { display: flex; flex-direction: column; }
+  .master-pane { max-height: 220px; overflow: auto; width: auto; min-width: 0; }
+  .detail-pane { min-width: 0; }
+  .tx-detail-grid { grid-template-columns: 1fr; }
+  .tx-node > summary { flex-wrap: wrap; }
+}
+
+/* Transaction outline: folding the call tree and inspecting an event are independent. */
+.tx-outline-view { min-width: 0; }
+.tx-outline-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.tx-outline-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; }
+.tx-outline-help { font-size: 12px; }
+.tx-outline { display: grid; gap: 8px; }
+.tx-outline [hidden] { display: none !important; }
+.tx-outline-group {
+  min-width: 0;
+  background: var(--daml-bg-elevated);
+  border: 1px solid var(--daml-border);
+  border-radius: 5px;
+}
+.tx-group-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 5px 10px;
+  cursor: pointer;
+  list-style: none;
+  background: var(--daml-bg-panel);
+  border-radius: 5px;
+}
+.tx-group-summary::-webkit-details-marker,
+.tx-event-summary::-webkit-details-marker { display: none; }
+.tx-outline-group[open] > .tx-group-summary {
+  border-bottom: 1px solid var(--daml-border);
+  border-radius: 5px 5px 0 0;
+}
+.tx-group-summary strong { white-space: nowrap; }
+.tx-group-count { color: var(--daml-fg-muted); font-size: 12px; white-space: nowrap; }
+.tx-group-preview { min-width: 0; color: var(--daml-fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-outline-group[open] > .tx-group-summary .tx-group-preview { visibility: hidden; }
+.tx-chevron { display: inline-block; font-size: 20px; line-height: 18px; width: 12px; text-align: center; color: var(--daml-fg-muted); }
+.tx-outline-group[open] > .tx-group-summary > .tx-chevron,
+.tx-branch-toggle[aria-expanded="true"] > .tx-chevron { transform: rotate(90deg); }
+.tx-outline-events,
+.tx-outline-children { list-style: none; margin: 0; }
+.tx-outline-events { padding: 5px 8px 7px; overflow-x: auto; }
+.tx-outline-node { position: relative; margin: 0; padding: 0; }
+.tx-outline-children { padding-left: 19px; margin-left: 10px; }
+.tx-outline-children > .tx-outline-node::before {
+  content: "";
+  position: absolute;
+  left: -19px;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--daml-border-strong);
+}
+.tx-outline-children > .tx-outline-node:last-child::before { bottom: auto; height: 15px; }
+.tx-outline-children > .tx-outline-node::after {
+  content: "";
+  position: absolute;
+  left: -19px;
+  top: 15px;
+  width: 18px;
+  border-top: 1px solid var(--daml-border-strong);
+}
+.tx-outline-line { display: flex; align-items: flex-start; min-width: 520px; }
+.tx-branch-toggle,
+.tx-branch-leaf { flex: 0 0 22px; width: 22px; min-width: 22px; height: 30px; text-align: center; }
+.tx-branch-toggle { padding: 0; border: 0; background: transparent; border-radius: 3px; }
+.tx-branch-leaf { color: var(--daml-fg-soft); line-height: 30px; }
+.tx-event-details { min-width: 0; flex: 1; }
+.tx-event-summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 30px;
+  padding: 4px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+.tx-event-summary:hover,
+.tx-event-details[open] > .tx-event-summary { background: var(--daml-bg-hover); }
+.tx-event-details[open] > .tx-event-summary { box-shadow: inset 2px 0 var(--daml-accent); }
+.tx-event-id { flex: 0 0 5em; color: var(--daml-fg-soft); font-size: 11px; }
+.tx-outline-kind { flex: 0 0 62px; font-size: 11px; color: var(--daml-fg-muted); font-weight: 600; }
+.tx-outline-kind.exercise { color: var(--daml-accent); }
+.tx-outline-kind.create { color: var(--daml-success); }
+.tx-outline-kind.fetch, .tx-outline-kind.lookup { color: var(--daml-party-1); }
+.tx-outline-kind.archive, .tx-outline-kind.archived-result { color: var(--daml-warning); }
+.tx-outline-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 550; }
+.tx-outline-actors { margin-left: auto; min-width: 0; max-width: 36%; overflow: hidden; text-overflow: ellipsis; color: var(--daml-fg-muted); font-size: 11px; }
+.tx-details-hint { margin-left: auto; flex: 0 0 auto; color: var(--daml-fg-soft); font-size: 11px; }
+.tx-outline-actors + .tx-details-hint { margin-left: 4px; }
+.tx-details-hint::after { content: "Details +"; }
+.tx-event-details[open] > .tx-event-summary .tx-details-hint::after { content: "Details −"; }
+.tx-event-body { padding: 12px; margin: 2px 0 8px 7px; border-left: 2px solid var(--daml-border); }
+.tx-event-body .tx-detail-grid { margin-bottom: 12px; }
+.tx-event-raw { margin-top: 12px; color: var(--daml-fg-muted); }
+.tx-event-raw > summary { cursor: pointer; }
+.tx-event-raw pre { white-space: pre-wrap; font-size: 12px; }
+@media (max-width: 720px) {
+  .tx-outline-help { display: none; }
+  .tx-outline-actors { display: none; }
+  .tx-event-body .tx-detail-grid { grid-template-columns: 1fr; }
 }

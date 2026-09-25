@@ -34,7 +34,6 @@ import javax.swing.DefaultListCellRenderer
 import javax.swing.JButton
 import javax.swing.JComboBox
 import javax.swing.JComponent
-import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.JPanel
@@ -42,7 +41,6 @@ import javax.swing.JPopupMenu
 import javax.swing.JScrollPane
 import javax.swing.JSplitPane
 import javax.swing.JTabbedPane
-import javax.swing.JOptionPane
 import javax.swing.JTable
 import javax.swing.JMenuItem
 import javax.swing.ListSelectionModel
@@ -58,6 +56,11 @@ import javax.swing.table.JTableHeader
 import javax.swing.text.SimpleAttributeSet
 import javax.swing.text.StyleConstants
 import java.nio.file.Path
+import com.intellij.ide.util.PropertiesComponent
+import com.intellij.openapi.fileChooser.FileChooserFactory
+import com.intellij.openapi.fileChooser.FileSaverDescriptor
+import javax.swing.JToggleButton
+import javax.swing.JCheckBox
 
 class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()), Disposable {
     private val profiles = SandboxProfileService.getInstance(project)
@@ -70,6 +73,20 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
     private val networkStatusBadge = JLabel()
     private val nameField = JBTextField()
     private val portBaseField = JBTextField()
+    private val uiState = PropertiesComponent.getInstance(project)
+    private val draftView = JToggleButton("Edit draft")
+    private val pendingLabel = JLabel()
+    private val statusMessage = JLabel("Configure a network, then start it to inspect ledger activity.")
+    private val startButton = JButton("Start")
+    private val stopButton = JButton("Stop")
+    private val inspectorTabs = JTabbedPane()
+    private val inspectorText = com.intellij.ui.components.JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
+    private val endpointSlot = JPanel(BorderLayout())
+    private val logSearch = JBTextField()
+    private val logSeverity = JComboBox(arrayOf("All levels", "Warnings", "Errors"))
+    private val logPaused = JCheckBox("Pause scrolling")
+    private var renderedGraphProfile: SandboxProfile? = null
+
 
     private val participantModel = tableModel("Participant", "Ledger", "Admin", "JSON")
     private val syncModel = tableModel("Sync Domain", "Sequencer", "Seq Public", "Seq Admin", "Mediator", "Med Admin")
@@ -126,67 +143,120 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
     }
 
     private fun toolbar(): JComponent {
-        val panel = JPanel(BorderLayout(8, 0)).apply {
-            background = TopologyGraphTheme.canvas
-            border = JBUI.Borders.empty(0, 0, 6, 0)
-        }
         profileCombo.addActionListener {
-            if (!loadingProfile && !profileCombo.isDeletingProfileFromPopup) (profileCombo.selectedItem as? SandboxProfile)?.let { profile ->
-                profiles.selectProfile(profile.id)
-            }
+            if (!loadingProfile && !profileCombo.isDeletingProfileFromPopup) (profileCombo.selectedItem as? SandboxProfile)?.let { profiles.selectProfile(it.id) }
         }
-        nameField.columns = 24
-        portBaseField.columns = 6
-        compactToolbarControl(profileCombo)
-        compactToolbarControl(nameField)
-        compactToolbarControl(portBaseField)
-        listOf(nameField, portBaseField).forEach {
-            it.addFocusListener(object : FocusAdapter() {
-                override fun focusLost(e: FocusEvent) {
-                    saveProfileFields()
-                }
+        startButton.addActionListener {
+            saveProfileFields()
+            val session = sessions.snapshot()
+            if (session.ownsProcess && Messages.showOkCancelDialog(project,
+                    "Stop ${session.launchedProfile?.name ?: "the running network"} and start ${currentProfile.name}? All in-memory contracts and parties will reset, and the draft configuration will be applied.",
+                    "Restart Sandbox", "Restart and Reset Ledger", "Cancel", AllIcons.General.Warning) != Messages.OK) return@addActionListener
+            draftView.isSelected = false
+            sessions.startLocal(currentProfile)
+        }
+        stopButton.addActionListener { sessions.stop() }
+        draftView.addActionListener { renderSession(latestSession) }
+        val controls = JPanel(WrappingToolbarLayout()).apply {
+            add(profileCombo.apply { preferredSize = Dimension(240, preferredSize.height) })
+            add(networkStatusBadge); add(pendingLabel); add(draftView); add(startButton); add(stopButton)
+            add(popupButton("More") { popup ->
+                popup.add(menuItem("New profile", AllIcons.General.Add) { loadProfile(profiles.createProfile()) })
+                popup.add(menuItem("Add participant", AllIcons.General.Add) { addParticipantFromGraph() })
+                popup.add(menuItem("Add synchronizer", AllIcons.General.Add) { addSynchronizerFromGraph() })
+                popup.add(menuItem("Profile settings", AllIcons.General.Settings) { showProfileSettings() })
+                popup.add(menuItem("Validate profile", AllIcons.Actions.Checked) { validateProfile() })
+                popup.add(menuItem("Generate files", AllIcons.FileTypes.Config) { doGenerate() })
+                popup.add(menuItem("Refresh health", AllIcons.Actions.Refresh) { sessions.refreshHealth(currentProfile) })
+                popup.addSeparator()
+                popup.add(menuItem("Clean owned runtime logs", AllIcons.Actions.GC) { sessions.clean(currentProfile) })
+                popup.add(menuItem("Delete profile", AllIcons.General.Remove) { deleteProfile(currentProfile) })
             })
         }
+        return JPanel(BorderLayout(0, 6)).apply {
+            add(controls, BorderLayout.NORTH)
+            add(statusMessage.apply { border = JBUI.Borders.empty(0, 8, 6, 8); foreground = TopologyGraphTheme.detail }, BorderLayout.SOUTH)
+        }
+    }
 
-        panel.add(row(
-            networkStatusBadge,
-            networkLabel("Profile"),
-            profileCombo,
-            button("New", AllIcons.General.Add) { loadProfile(profiles.createProfile()) },
-            networkLabel("Name"),
-            nameField,
-            networkLabel("Port base"),
-            portBaseField
-        ), BorderLayout.CENTER)
-        panel.add(row(
-            button("Start", AllIcons.Actions.Execute) { saveProfileFields(); sessions.startLocal(currentProfile) },
-            button("Stop", AllIcons.Actions.Suspend) { sessions.stop() },
-            popupButton("More") { popup ->
-                popup.add(menuItem("Validate Profile", AllIcons.Actions.Checked) { validateProfile() })
-                popup.add(menuItem("Generate Files", AllIcons.FileTypes.Config) { doGenerate() })
-                popup.add(menuItem("Refresh Health", AllIcons.Actions.Refresh) { sessions.refreshHealth(currentProfile) })
-                popup.add(menuItem("Rebase Ports", AllIcons.Actions.Refresh) { rebasePorts() })
-                popup.addSeparator()
-                popup.add(menuItem("Clean Runtime Data", AllIcons.Actions.GC) { sessions.clean(currentProfile) })
-                popup.add(menuItem("Delete Profile", AllIcons.General.Remove) { deleteProfile(currentProfile) })
+    private fun showForm(title: String, form: JComponent, validate: () -> com.intellij.openapi.ui.ValidationInfo? = { null }): Boolean =
+        object : com.intellij.openapi.ui.DialogWrapper(project) {
+            init { this.title = title; init() }
+            override fun createCenterPanel(): JComponent = form
+            override fun doValidate() = validate()
+        }.showAndGet()
+
+    private fun validateNodeFields(names: List<JBTextField>, ports: List<JBTextField>, editing: Set<String>): com.intellij.openapi.ui.ValidationInfo? {
+        val existingNames = currentProfile.participants.filter { it.id !in editing }.map { it.name } +
+            currentProfile.synchronizers.flatMap { sync ->
+                listOf(sync.id to sync.name, sync.sequencer.id to sync.sequencer.name, sync.mediator.id to sync.mediator.name)
+                    .filter { it.first !in editing }.map { it.second }
             }
-        ), BorderLayout.EAST)
-        return panel
+        names.firstOrNull { !isCantonIdentifier(it.text.trim()) }?.let { return com.intellij.openapi.ui.ValidationInfo("Use a Canton identifier: a letter followed by letters, digits, or underscores.", it) }
+        names.firstOrNull { field -> field.text.trim() in existingNames || names.count { it.text.trim() == field.text.trim() } > 1 }
+            ?.let { return com.intellij.openapi.ui.ValidationInfo("This name is already in use.", it) }
+        ports.firstOrNull { it.text.toIntOrNull() !in 1..65535 }?.let { return com.intellij.openapi.ui.ValidationInfo("Enter a TCP port from 1 to 65535.", it) }
+        val occupied = EndpointBuilder.all(currentProfile).filter { it.nodeId !in editing }.map { it.port }
+        ports.firstOrNull { field -> field.text.toInt() in occupied || ports.count { it.text.toInt() == field.text.toInt() } > 1 }
+            ?.let { return com.intellij.openapi.ui.ValidationInfo("This port is already assigned to another endpoint.", it) }
+        return null
+    }
+
+    private fun showProfileSettings() {
+        val form = JPanel(GridBagLayout()).apply {
+            addLabeled("Profile name", nameField, 0)
+            addLabeled("Port base", portBaseField, 1)
+            addLabeled("Runtime", JLabel(latestSession.runtimeVersion.ifBlank { "Resolved from DAML settings at startup" }), 2)
+            addLabeled("Storage", JLabel("Memory — restart resets ledger data"), 3)
+            addLabeled("Ports", button("Preview rebase…") { rebasePorts() }, 4)
+        }
+        if (showForm("Profile Settings", form) {
+                when {
+                    nameField.text.isBlank() -> com.intellij.openapi.ui.ValidationInfo("Enter a profile name.", nameField)
+                    portBaseField.text.toIntOrNull() !in 1024..65532 -> com.intellij.openapi.ui.ValidationInfo("Use a port base from 1024 to 65532.", portBaseField)
+                    else -> null
+                }
+            }) {
+            saveProfileFields(); renderSession(latestSession)
+        } else { nameField.text = currentProfile.name; portBaseField.text = currentProfile.portBase.toString() }
+    }
+
+    private fun displayedProfile(): SandboxProfile =
+        latestSession.launchedProfile?.takeIf { latestSession.belongsTo(currentProfile) && latestSession.ownsProcess && !draftView.isSelected }
+            ?.copy(topologyPositions = currentProfile.topologyPositions.map { it.copy() }.toMutableList()) ?: currentProfile
+
+    private fun canEditTopology(): Boolean {
+        if (displayedProfile() !== currentProfile) {
+            statusMessage.text = "This is the launched topology. Select Edit draft to configure changes for the next restart."
+            return false
+        }
+        return true
+    }
+
+    private fun refreshGraph() {
+        val shown = displayedProfile()
+        if (renderedGraphProfile != shown) {
+            graph.setProfile(shown)
+            renderedGraphProfile = shown.deepCopy()
+        }
+        componentPalette.setProfile(shown)
     }
 
     private fun topologyTab(): JComponent {
         graph.setSelectionListener { selection -> selectTopology(selection) }
         graph.setActivationListener { selection ->
-            currentTopologySelection = selection
-            componentPalette.select(selection)
-            editSelectedTopologyNode()
+            if (canEditTopology()) {
+                currentTopologySelection = selection
+                componentPalette.select(selection)
+                editSelectedTopologyNode()
+            }
         }
         graph.setPositionListener { selection, x, y -> updateTopologyPosition(selection, x, y) }
         graph.setConnectionListener { participantId, synchronizerId, connected ->
-            setGraphConnection(participantId, synchronizerId, connected)
+            if (canEditTopology()) setGraphConnection(participantId, synchronizerId, connected)
         }
         graph.setContextMenuListener { selection, point -> showTopologyContextMenu(selection, point.x, point.y) }
-        graph.setDarDropListener { darPath, participantId -> assignDarToParticipant(darPath, participantId) }
+        graph.setDarDropListener { darPath, participantId -> if (canEditTopology()) assignDarToParticipant(darPath, participantId) }
         graph.setDarDropRejectedListener { message ->
             Messages.showInfoMessage(project, message, "DAR Assignment")
         }
@@ -212,25 +282,41 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
             border = BorderFactory.createEmptyBorder()
             viewport.background = TopologyGraphTheme.canvas
         }).apply {
-            ui = TopologySplitPaneUI()
+            addComponentListener(object : java.awt.event.ComponentAdapter() {
+                override fun componentResized(e: java.awt.event.ComponentEvent) {
+                    sidebar.setCollapsed(width < 700)
+                    if (width >= 700 && dividerLocation < 120) dividerLocation = 260
+                    graph.refreshViewportSize()
+                }
+            })
+            ui = IdeSplitPaneUI()
             resizeWeight = 0.0
-            dividerLocation = 292
+            dividerLocation = uiState.getInt("canton.topology.sidebar", 240)
+            addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY) { uiState.setValue("canton.topology.sidebar", dividerLocation, 240) }
             dividerSize = 8
             isContinuousLayout = true
             border = BorderFactory.createEmptyBorder()
             background = TopologyGraphTheme.canvas
         }
-        return JPanel(BorderLayout()).apply {
-            background = TopologyGraphTheme.canvas
-            add(workspace, BorderLayout.CENTER)
+        inspectorTabs.addTab("Selection", themedScrollPane(inspectorText))
+        inspectorTabs.addTab("Endpoint tools", endpointSlot)
+        inspectorTabs.isVisible = false
+        return JSplitPane(JSplitPane.VERTICAL_SPLIT, workspace, inspectorTabs).apply {
+            ui = IdeSplitPaneUI()
+            resizeWeight = 0.72
+            dividerLocation = uiState.getInt("canton.topology.inspector", 500)
+            addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY) { uiState.setValue("canton.topology.inspector", dividerLocation, 500) }
+            border = JBUI.Borders.empty()
         }
     }
 
     private fun mainContent(): JComponent {
         val tabs = styledTabbedPane()
         tabs.addTab("Topology", topologyTab())
-        tabs.addTab("Nodes", nodesTab())
-        tabs.addTab("Parties", partiesTab())
+        tabs.addTab("Packages & Parties", JPanel(BorderLayout(0, 8)).apply {
+            add(row(button("Manage DAR assignments…") { draftView.isSelected = true; manageDarAssignments() }, JLabel("Saved changes apply at the next start.")), BorderLayout.NORTH)
+            add(partiesTab(), BorderLayout.CENTER)
+        })
         tabs.addTab("Logs", logsTab())
         return JPanel(BorderLayout()).apply {
             background = TopologyGraphTheme.canvas
@@ -251,7 +337,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
             preferredSize = Dimension(380, 100)
             minimumSize = Dimension(280, 80)
         }, participantEndpointConsole).apply {
-            ui = TopologySplitPaneUI()
+            ui = IdeSplitPaneUI()
             resizeWeight = 0.0
             dividerLocation = 380
             dividerSize = 8
@@ -265,7 +351,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
             preferredSize = Dimension(440, 100)
             minimumSize = Dimension(320, 80)
         }, syncDomainEndpointConsole).apply {
-            ui = TopologySplitPaneUI()
+            ui = IdeSplitPaneUI()
             resizeWeight = 0.0
             dividerLocation = 440
             dividerSize = 8
@@ -298,24 +384,35 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
         }
     }
 
-    private fun logsTab(): JComponent =
-        networkPanel(BorderLayout(8, 8)).apply {
-            add(networkCard(row(
-                networkLabel("Runtime log"),
-                button("Clear", AllIcons.Actions.GC) { sessions.clearLog() }
-            )), BorderLayout.NORTH)
-            add(networkCard(themedScrollPane(logArea)), BorderLayout.CENTER)
+    private fun logsTab(): JComponent {
+        logSearch.columns = 20
+        logSearch.emptyText.text = "Search logs"
+        logSearch.document.addDocumentListener(object : javax.swing.event.DocumentListener {
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent) = renderLog(latestSession.log)
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent) = renderLog(latestSession.log)
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent) = renderLog(latestSession.log)
+        })
+        logSeverity.addActionListener { renderLog(latestSession.log) }
+        return JPanel(BorderLayout(0, 8)).apply {
+            add(row(logSearch, logSeverity, logPaused,
+                button("Copy") { java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(logArea.text), null) },
+                button("Export…") {
+                    val file = FileChooserFactory.getInstance().createSaveFileDialog(FileSaverDescriptor("Export Logs", "Save the displayed log", "log"), project).save("canton.log")
+                    file?.file?.writeText(logArea.text)
+                }, button("Clear") { sessions.clearLog() }), BorderLayout.NORTH)
+            add(themedScrollPane(logArea), BorderLayout.CENTER)
         }
+    }
 
     private fun loadProfile(profile: SandboxProfile) {
         loadingProfile = true
         try {
+            val changed = currentProfile.id != profile.id
             currentProfile = profile
-            currentTopologySelection = null
-            graph.select(null)
+            if (changed) { currentTopologySelection = null; graph.select(null); draftView.isSelected = false }
             nameField.text = profile.name
             portBaseField.text = profile.portBase.toString()
-            graph.setProfile(profile)
+            refreshGraph()
             componentPalette.setProfile(profile)
             refreshProfiles()
             profileCombo.selectedIndex = profiles.profiles().indexOfFirst { it.id == profile.id }.coerceAtLeast(0)
@@ -341,6 +438,9 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
     }
 
     private fun deleteProfile(profile: SandboxProfile) {
+        if (sessions.snapshot().let { it.belongsTo(profile) && (it.ownsProcess || it.status == SandboxSessionStatus.STARTING) }) {
+            statusMessage.text = "Stop this sandbox before deleting its profile."; return
+        }
         val allProfiles = profiles.profiles()
         if (allProfiles.size <= 1) {
             Messages.showInfoMessage(project, "Keep at least one sandbox profile.", "Managed Canton Sandboxes")
@@ -361,7 +461,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
         currentProfile.name = nameField.text.trim().ifBlank { "Managed Canton Sandbox" }
         currentProfile.portBase = portBaseField.text.toIntOrNull() ?: currentProfile.portBase
         profiles.upsert(currentProfile)
-        graph.setProfile(currentProfile)
+        refreshGraph()
         componentPalette.setProfile(currentProfile)
     }
 
@@ -391,26 +491,23 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
 
     private fun validateProfile() {
         saveProfileFields()
-        val profile = currentProfile
+        val profile = currentProfile.deepCopy()
         val generated = latestSession.generated.takeIf { latestSession.profileId == profile.id }
         ApplicationManager.getApplication().executeOnPooledThread {
             val result = SandboxRuntimeValidator.getInstance(project).validate(profile, generated)
             SwingUtilities.invokeLater {
-                Messages.showInfoMessage(project, buildString {
-                    appendLine(result.message)
-                    result.checks.forEach { check ->
-                        appendLine("${if (check.ok) "OK" else "FAIL"} ${check.name}: ${check.detail}")
-                    }
-                }, "Sandbox Validation")
+                if (currentProfile.id != profile.id || currentProfile.runtimeDefinition() != profile.runtimeDefinition()) return@invokeLater
+                statusMessage.text = result.message
+                inspectorText.text = result.checks.joinToString("\n") { "${if (it.ok) "✓" else "!"} ${it.name}: ${it.detail}" }
+                inspectorTabs.isVisible = true
+                inspectorTabs.selectedIndex = 0
             }
         }
     }
 
     private fun addParticipant() {
-        val next = currentProfile.participants.size + 1
-        val participant = SandboxDefaults.participant(next, currentProfile.portBase)
-        currentProfile.participants.add(participant)
-        currentProfile.synchronizers.forEach { currentProfile.bindings.add(ParticipantSyncBinding(participant.id, it.id, true)) }
+        draftView.isSelected = true
+        SandboxTopology.addParticipant(currentProfile)
         persistAndRefresh()
     }
 
@@ -437,6 +534,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
     }
 
     private fun editSelectedTopologyNode() {
+        if (!canEditTopology()) return
         when (val selection = currentTopologySelection) {
             is TopologyGraphPanel.Selection.Participant -> {
                 selectParticipantRow(selection.id)
@@ -451,6 +549,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
     }
 
     private fun removeSelectedTopologyNode() {
+        if (!canEditTopology()) return
         when (val selection = currentTopologySelection) {
             is TopologyGraphPanel.Selection.Participant -> removeParticipantById(selection.id)
             is TopologyGraphPanel.Selection.Synchronizer -> removeSynchronizerById(selection.id)
@@ -481,6 +580,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
     }
 
     private fun manageDarAssignments(participantId: String? = null) {
+        if (!canEditTopology()) return
         val dialog = DarAssignmentDialog(project, currentProfile)
         if (!dialog.showAndGet()) return
         currentProfile.darAssignments = dialog.resultAssignments()
@@ -508,11 +608,13 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
     }
 
     private fun clearDarsFromParticipant(participantId: String) {
+        if (!canEditTopology()) return
         currentProfile.darAssignments.forEach { it.participantIds.removeIf { id -> id == participantId } }
         persistDarAssignmentChange(participantId)
     }
 
     private fun copyDarsFromParticipant(targetParticipantId: String) {
+        if (!canEditTopology()) return
         val candidates = currentProfile.participants.filter { it.id != targetParticipantId }
         if (candidates.isEmpty()) return
         val names = candidates.map { it.name }.toTypedArray()
@@ -572,6 +674,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
     }
 
     private fun editGraphConnection() {
+        if (!canEditTopology()) return
         val participants = currentProfile.participants
         val synchronizers = currentProfile.synchronizers
         if (participants.isEmpty() || synchronizers.isEmpty()) return
@@ -602,7 +705,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
             addLabeled("Sync domain", syncCombo, 1)
             addLabeled("State", connected, 2)
         }
-        if (JOptionPane.showConfirmDialog(this, form, "Edit Connection", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return
+        if (!showForm("Edit Connection", form)) return
         val participant = participants.getOrNull(participantCombo.selectedIndex) ?: return
         val sync = synchronizers.getOrNull(syncCombo.selectedIndex) ?: return
         val binding = currentProfile.bindings.firstOrNull { it.participantId == participant.id && it.synchronizerId == sync.id }
@@ -620,7 +723,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
         currentProfile.topologyPositions.removeIf { it.nodeId == nodeId }
         currentProfile.topologyPositions.add(TopologyNodePosition(nodeId, x.coerceAtLeast(0), y.coerceAtLeast(0)))
         profiles.upsert(currentProfile)
-        graph.setProfile(currentProfile)
+        refreshGraph()
         currentTopologySelection = selection
         graph.select(selection)
         graph.setSelectionDetails(null)
@@ -630,7 +733,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
         val selection = currentTopologySelection
         currentProfile.topologyPositions.clear()
         profiles.upsert(currentProfile)
-        graph.setProfile(currentProfile)
+        refreshGraph()
         renderProfileTables()
         selectTopology(selection)
     }
@@ -650,6 +753,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
     }
 
     private fun editSelectedParticipant() {
+        if (!canEditTopology()) return
         val row = participantTable.selectedRow
         val participant = currentProfile.participants.getOrNull(row) ?: return
         val name = JBTextField(participant.name)
@@ -662,7 +766,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
             addLabeled("Admin port", adminPort, 2)
             addLabeled("JSON port", jsonPort, 3)
         }
-        if (JOptionPane.showConfirmDialog(this, form, "Edit Participant", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return
+        if (!showForm("Edit Participant", form) { validateNodeFields(listOf(name), listOf(ledgerPort, adminPort, jsonPort), setOf(participant.id)) }) return
         val newName = name.text.trim()
         val ports = listOf(ledgerPort.text.toIntOrNull(), adminPort.text.toIntOrNull(), jsonPort.text.toIntOrNull())
         if (!isCantonIdentifier(newName) || ports.any { it == null || it !in 1..65535 }) {
@@ -681,14 +785,13 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
     }
 
     private fun addSynchronizer() {
-        val next = currentProfile.synchronizers.size + 1
-        val sync = SandboxDefaults.synchronizer(next, currentProfile.portBase)
-        currentProfile.synchronizers.add(sync)
-        currentProfile.participants.forEach { currentProfile.bindings.add(ParticipantSyncBinding(it.id, sync.id, true)) }
+        draftView.isSelected = true
+        SandboxTopology.addSynchronizer(currentProfile)
         persistAndRefresh()
     }
 
     private fun editSelectedSynchronizer() {
+        if (!canEditTopology()) return
         val row = syncTable.selectedRow
         val sync = currentProfile.synchronizers.getOrNull(row) ?: return
         val name = JBTextField(sync.name)
@@ -705,7 +808,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
             addLabeled("Mediator", mediatorName, 4)
             addLabeled("Mediator admin", mediatorAdmin, 5)
         }
-        if (JOptionPane.showConfirmDialog(this, form, "Edit Sync Domain", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return
+        if (!showForm("Edit Synchronizer", form) { validateNodeFields(listOf(name, sequencerName, mediatorName), listOf(sequencerPublic, sequencerAdmin, mediatorAdmin), setOf(sync.id, sync.sequencer.id, sync.mediator.id)) }) return
         val newName = name.text.trim()
         val newSequencer = sequencerName.text.trim()
         val newMediator = mediatorName.text.trim()
@@ -808,19 +911,15 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
 
     private fun rebasePorts() {
         val base = portBaseField.text.toIntOrNull() ?: return
-        currentProfile.portBase = base
-        currentProfile.participants = currentProfile.participants.mapIndexed { index, old ->
-            SandboxDefaults.participant(index + 1, base).also {
-                it.id = old.id
-                it.name = old.name
-            }
-        }.toMutableList()
-        currentProfile.synchronizers = currentProfile.synchronizers.mapIndexed { index, old ->
-            SandboxDefaults.synchronizer(index + 1, base).also {
-                it.id = old.id
-                it.name = old.name
-            }
-        }.toMutableList()
+        val preview = runCatching { SandboxTopology.rebased(currentProfile, base) }.getOrElse {
+            Messages.showErrorDialog(project, it.message.orEmpty(), "Invalid Port Base"); return
+        }
+        val before = EndpointBuilder.all(currentProfile).associateBy { it.nodeId to it.kind }
+        val changes = EndpointBuilder.all(preview).joinToString("\n") {
+            "${it.nodeName} ${it.kind}: ${before[it.nodeId to it.kind]?.port} → ${it.port}"
+        }
+        if (Messages.showOkCancelDialog(project, changes, "Rebase Ports", "Apply to Draft", "Cancel", null) != Messages.OK) return
+        currentProfile = preview
         persistAndRefresh()
     }
 
@@ -856,7 +955,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
         currentProfile.partyAllocations.forEach {
             partyModel.addRow(rowData(currentProfile.participant(it.participantId)?.name.orEmpty(), currentProfile.synchronizer(it.synchronizerId)?.name.orEmpty(), it.partyHint))
         }
-        graph.setProfile(currentProfile)
+        refreshGraph()
         refreshPartyCombos()
         updateParticipantEndpointConsole()
         updateSyncDomainEndpointConsole()
@@ -871,11 +970,11 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
             ?: currentProfile.synchronizers.firstOrNull()?.id
 
     private fun updateParticipantEndpointConsole() {
-        participantEndpointConsole.setContext(currentProfile, latestSession, selectedParticipantId())
+        participantEndpointConsole.setContext(currentProfile, latestSession, (currentTopologySelection as? TopologyGraphPanel.Selection.Participant)?.id ?: selectedParticipantId())
     }
 
     private fun updateSyncDomainEndpointConsole() {
-        syncDomainEndpointConsole.setContext(currentProfile, latestSession, selectedSyncId())
+        syncDomainEndpointConsole.setContext(currentProfile, latestSession, (currentTopologySelection as? TopologyGraphPanel.Selection.Synchronizer)?.id ?: selectedSyncId())
     }
 
     private fun refreshPartyCombos() {
@@ -891,14 +990,30 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
 
     private fun renderSession(state: SandboxSessionState) {
         renderLog(state.log)
-        logArea.caretPosition = logArea.document.length
+        if (!logPaused.isSelected) logArea.caretPosition = logArea.document.length
         val belongsToCurrentProfile = state.profileId.isBlank() || state.profileId == currentProfile.id
         val effectiveState = if (belongsToCurrentProfile) {
             state
         } else {
-            state.copy(status = SandboxSessionStatus.STOPPED, health = emptyList(), message = "No running session for this profile")
+            state.copy(status = SandboxSessionStatus.STOPPED, health = emptyList(), message = "${state.launchedProfile?.name ?: "Another profile"} is running. Start this profile to replace it.")
         }
         renderNetworkStatus(effectiveState)
+        val owns = state.ownsProcess && state.belongsTo(currentProfile)
+        val preparing = state.status in setOf(SandboxSessionStatus.STARTING, SandboxSessionStatus.STOPPING)
+        startButton.text = when {
+            owns && state.hasPendingChanges(currentProfile) -> "Restart with changes"
+            owns -> "Restart"
+            else -> "Start"
+        }
+        startButton.isEnabled = !preparing
+        stopButton.isEnabled = owns || preparing && belongsToCurrentProfile
+        stopButton.isVisible = !state.ownsProcess || owns || preparing && belongsToCurrentProfile
+        stopButton.text = if (state.status == SandboxSessionStatus.STARTING) "Cancel start" else "Stop"
+        draftView.isVisible = owns
+        pendingLabel.text = if (owns && state.hasPendingChanges(currentProfile)) "Pending changes" else ""
+        pendingLabel.foreground = TopologyGraphTheme.warning
+        statusMessage.text = if (owns && draftView.isSelected) "Draft configuration — changes apply after restart; the running network is unchanged." else effectiveState.message
+        refreshGraph()
         graph.setRuntimeState(
             effectiveState.status,
             effectiveState.health,
@@ -911,10 +1026,10 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
 
     private fun renderNetworkStatus(state: SandboxSessionState) {
         val color = networkStatusColor(state.status)
-        networkStatusBadge.text = "Status: ${state.status.presentableName}"
+        networkStatusBadge.text = state.status.presentableName
         networkStatusBadge.foreground = color
         networkStatusBadge.background = TopologyGraphTheme.panel
-        networkStatusBadge.font = networkStatusBadge.font.deriveFont(Font.BOLD, 12f)
+        networkStatusBadge.font = networkStatusBadge.font.deriveFont(Font.BOLD)
         networkStatusBadge.isOpaque = true
         networkStatusBadge.border = BorderFactory.createCompoundBorder(
             NetworkRoundBorder(color, 12),
@@ -925,18 +1040,18 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
 
     private fun renderInspector(selection: TopologyGraphPanel.Selection?) {
         val text = when (selection) {
-            is TopologyGraphPanel.Selection.Participant -> currentProfile.participant(selection.id)?.let { participant ->
-                participantInspectorText(currentProfile, participant, healthLine(participant.id))
+            is TopologyGraphPanel.Selection.Participant -> displayedProfile().participant(selection.id)?.let { participant ->
+                participantInspectorText(displayedProfile(), participant, healthLine(participant.id))
             }
-            is TopologyGraphPanel.Selection.Synchronizer -> currentProfile.synchronizer(selection.id)?.let { sync ->
+            is TopologyGraphPanel.Selection.Synchronizer -> displayedProfile().synchronizer(selection.id)?.let { sync ->
                 """
                 |${TopologyNodeIcons.SYNCHRONIZER} Sync Domain - ${sync.name}
                 |
                 |Sequencer: ${sync.sequencer.name}
                 |Mediator: ${sync.mediator.name}
                 |
-                |Connected participants:
-                |${currentProfile.bindings.filter { it.synchronizerId == sync.id && it.connected }.mapNotNull { currentProfile.participant(it.participantId)?.name }.joinToString("\n").ifBlank { "None" }}
+                |Configured participants:
+                |${displayedProfile().bindings.filter { it.synchronizerId == sync.id && it.connected }.mapNotNull { displayedProfile().participant(it.participantId)?.name }.joinToString("\n").ifBlank { "None" }}
                 |""".trimMargin()
             }
             null -> null
@@ -949,7 +1064,31 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
         } else {
             emptyList()
         }
-        graph.setSelectionDetails(text, actions)
+        graph.setSelectionDetails(null, emptyList())
+        if (inspectorText.text != text.orEmpty()) {
+            val caret = inspectorText.caretPosition
+            inspectorText.text = text.orEmpty()
+            inspectorText.caretPosition = caret.coerceAtMost(inspectorText.document.length)
+        }
+        val newlyVisible = !inspectorTabs.isVisible && text != null
+        inspectorTabs.isVisible = text != null
+        if (newlyVisible) (inspectorTabs.parent as? JSplitPane)?.let { split ->
+            if (split.dividerLocation > split.height - 180) split.dividerLocation = (split.height * 0.58).toInt()
+        }
+        val endpoint = when (selection) {
+            is TopologyGraphPanel.Selection.Participant -> {
+                participantEndpointConsole.setContext(currentProfile, latestSession, selection.id)
+                participantEndpointConsole
+            }
+            is TopologyGraphPanel.Selection.Synchronizer -> {
+                syncDomainEndpointConsole.setContext(currentProfile, latestSession, selection.id)
+                syncDomainEndpointConsole
+            }
+            null -> null
+        }
+        if (endpoint != null && endpoint.parent !== endpointSlot) {
+            endpointSlot.removeAll(); endpointSlot.add(endpoint, BorderLayout.CENTER); endpointSlot.revalidate(); endpointSlot.repaint()
+        }
     }
 
     private fun selectTopology(selection: TopologyGraphPanel.Selection?) {
@@ -963,7 +1102,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
         if (latestSession.profileId.isNotBlank() && latestSession.profileId != currentProfile.id) return "not checked"
         val snapshot = latestSession.health.firstOrNull { it.endpoint.nodeId == participantId && it.endpoint.kind == "json" }
             ?: return "not checked"
-        return "live=${snapshot.live.statusText()} ready=${snapshot.ready.statusText()}"
+        return "JSON API: live=${snapshot.live.statusText()} ready=${snapshot.ready.statusText()}\nObserved synchronizers: ${snapshot.connectedSynchronizers?.sorted()?.joinToString()?.ifBlank { "none" } ?: "not checked"}"
     }
 
     private fun Boolean.statusText(): String = if (this) "ok" else "down"
@@ -1008,7 +1147,6 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
 
     private fun styledTabbedPane(): JTabbedPane =
         JTabbedPane().apply {
-            ui = NetworkTabbedPaneUI()
             background = TopologyGraphTheme.canvas
             foreground = TopologyGraphTheme.text
             border = BorderFactory.createEmptyBorder()
@@ -1041,7 +1179,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
         JLabel(text).apply {
             foreground = TopologyGraphTheme.detail
             border = JBUI.Borders.emptyRight(2)
-            font = font.deriveFont(Font.PLAIN, 12f)
+            font = font.deriveFont(Font.PLAIN, TopologyGraphTheme.fontSize(12f))
         }
 
     private fun themedScrollPane(component: JComponent): JBScrollPane =
@@ -1080,17 +1218,26 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
     }
 
     private fun renderLog(log: String) {
+        val query = logSearch.text.trim()
+        val lines = log.lineSequence().filter { line ->
+            (query.isBlank() || line.contains(query, ignoreCase = true)) && when (logSeverity.selectedIndex) {
+                1 -> line.contains("WARN", true) || line.contains("ERROR", true) || line.contains("FAILED", true)
+                2 -> line.contains("ERROR", true) || line.contains("FAILED", true)
+                else -> true
+            }
+        }.toList()
+        val text = lines.joinToString("\n")
+        if (logArea.text == text) return
+        val position = logArea.caretPosition
         val document = logArea.styledDocument
         document.remove(0, document.length)
-        val lines = if (log.isEmpty()) listOf("") else log.split('\n')
-        for ((index, line) in lines.withIndex()) {
+        lines.forEachIndexed { index, line ->
             val attributes = SimpleAttributeSet().apply {
                 StyleConstants.setForeground(this, networkLogLineColor(line))
-                StyleConstants.setFontFamily(this, Font.MONOSPACED)
-                StyleConstants.setFontSize(this, 12)
             }
             document.insertString(document.length, line + if (index < lines.lastIndex) "\n" else "", attributes)
         }
+        logArea.caretPosition = if (logPaused.isSelected) position.coerceAtMost(document.length) else document.length
     }
 
     private fun table(model: DefaultTableModel): JBTable =
@@ -1139,8 +1286,8 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
 
     private fun styleTableHeader(header: JTableHeader) {
         header.background = TopologyGraphTheme.canvas
-        header.foreground = TopologyGraphTheme.warning
-        header.font = header.font.deriveFont(Font.BOLD, 12f)
+        header.foreground = TopologyGraphTheme.text
+        header.font = header.font.deriveFont(Font.BOLD, TopologyGraphTheme.fontSize(12f))
         header.border = BorderFactory.createMatteBorder(0, 0, 1, 0, TopologyGraphTheme.panelBorder)
         header.defaultRenderer = NetworkTableHeaderRenderer(header.defaultRenderer)
     }
@@ -1206,11 +1353,11 @@ internal fun participantInspectorText(
     }
     val parties = profile.partyAllocations
         .filter { it.participantId == participant.id }
-        .joinToString("\n") { it.partyHint }
+        .joinToString("\n") { "${it.partyHint} → ${profile.synchronizer(it.synchronizerId)?.name ?: it.synchronizerId}" }
     return """
         |${TopologyNodeIcons.PARTICIPANT} Participant - ${participant.name}
         |
-        |Uploaded DARs:
+        |Configured DARs:
         |$darLines
         |
         |Ledger API: grpc://127.0.0.1:${participant.ledgerPort}
@@ -1218,10 +1365,10 @@ internal fun participantInspectorText(
         |JSON API: http://127.0.0.1:${participant.jsonPort}
         |Health: $health
         |
-        |Connected sync domains:
+        |Configured synchronizers:
         |${profile.connectedSynchronizers(participant.id).joinToString("\n") { it.name }.ifBlank { "None" }}
         |
-        |Parties:
+        |Configured party hints:
         |${parties.ifBlank { "None allocated" }}
         |""".trimMargin()
 }
@@ -1241,7 +1388,7 @@ internal fun networkStatusColor(status: SandboxSessionStatus): Color =
         SandboxSessionStatus.GENERATING,
         SandboxSessionStatus.STOPPING -> TopologyGraphTheme.warning
         SandboxSessionStatus.FAILED -> Color(0xFF5C7A)
-        SandboxSessionStatus.STOPPED -> Color(0xFF6D86)
+        SandboxSessionStatus.STOPPED -> TopologyGraphTheme.detail
     }
 
 internal fun networkLogLineColor(line: String): Color {
@@ -1271,7 +1418,7 @@ private class NetworkTableHeaderRenderer(
         delegate.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column).apply {
             background = TopologyGraphTheme.canvas
             foreground = TopologyGraphTheme.warning
-            font = font.deriveFont(Font.BOLD, 12f)
+            font = font.deriveFont(Font.BOLD, TopologyGraphTheme.fontSize(12f))
             if (this is JComponent) {
                 isOpaque = true
                 border = JBUI.Borders.empty(0, 10)
@@ -1352,43 +1499,7 @@ internal class NetworkListCellRenderer : DefaultListCellRenderer() {
     }
 }
 
-internal class NetworkButton(text: String, icon: javax.swing.Icon?) : JButton(text, icon) {
-    init {
-        foreground = TopologyGraphTheme.text
-        background = TopologyGraphTheme.panel
-        isOpaque = false
-        isContentAreaFilled = false
-        isBorderPainted = false
-        isFocusPainted = false
-        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        border = JBUI.Borders.empty(5, 11)
-        margin = Insets(0, 0, 0, 0)
-        horizontalAlignment = SwingConstants.CENTER
-    }
-
-    override fun getPreferredSize(): Dimension {
-        val size = super.getPreferredSize()
-        return Dimension(size.width.coerceAtLeast(34), 34)
-    }
-
-    override fun paintComponent(g: Graphics) {
-        val g2 = g.create() as Graphics2D
-        try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.color = when {
-                model.isPressed -> networkAlpha(TopologyGraphTheme.selected, 70)
-                model.isRollover -> networkAlpha(TopologyGraphTheme.hover, 34)
-                else -> TopologyGraphTheme.panel
-            }
-            g2.fillRoundRect(0, 0, width - 1, height - 1, 14, 14)
-            g2.color = if (model.isRollover) TopologyGraphTheme.hover else TopologyGraphTheme.panelBorder
-            g2.drawRoundRect(0, 0, width - 1, height - 1, 14, 14)
-        } finally {
-            g2.dispose()
-        }
-        super.paintComponent(g)
-    }
-}
+internal class NetworkButton(text: String, icon: javax.swing.Icon?) : JButton(text, icon)
 
 internal class NetworkRoundBorder(
     private val color: Color,
@@ -1434,6 +1545,14 @@ private class TopologyComponentSidebarPanel(
         rebuild()
     }
 
+    fun setCollapsed(value: Boolean) {
+        if (collapsed == value) return
+        collapsed = value
+        preferredSize = Dimension(if (value) 38 else 260, preferredSize.height)
+        (parent as? JSplitPane)?.dividerLocation = preferredSize.width
+        rebuild()
+    }
+
     private fun rebuild() {
         removeAll()
         add(if (collapsed) collapsedView() else expandedView(), BorderLayout.CENTER)
@@ -1445,9 +1564,7 @@ private class TopologyComponentSidebarPanel(
         JPanel(BorderLayout()).apply {
             background = TopologyGraphTheme.panel
             add(sidebarButton("›", null) {
-                collapsed = false
-                preferredSize = Dimension(292, preferredSize.height)
-                rebuild()
+                setCollapsed(false)
             }.apply {
                 toolTipText = "Expand topology sidebar"
                 preferredSize = Dimension(34, 32)
@@ -1473,12 +1590,10 @@ private class TopologyComponentSidebarPanel(
             background = TopologyGraphTheme.panel
             add(JLabel("Topology").apply {
                 foreground = TopologyGraphTheme.text
-                font = font.deriveFont(Font.BOLD, 15f)
+                font = font.deriveFont(Font.BOLD, TopologyGraphTheme.fontSize(15f))
             }, BorderLayout.WEST)
             add(sidebarButton("‹", null) {
-                collapsed = true
-                preferredSize = Dimension(38, preferredSize.height)
-                rebuild()
+                setCollapsed(true)
             }.apply {
                 toolTipText = "Collapse topology sidebar"
                 preferredSize = Dimension(34, 30)
@@ -1490,8 +1605,8 @@ private class TopologyComponentSidebarPanel(
             background = TopologyGraphTheme.panel
             border = BorderFactory.createMatteBorder(1, 0, 0, 0, TopologyGraphTheme.panelBorder)
             val buttons = listOf(
-                sidebarButton("Add PN", AllIcons.General.Add, actions.addParticipant),
-                sidebarButton("Add SD", AllIcons.General.Add, actions.addSynchronizer),
+                sidebarButton("Participant", AllIcons.General.Add, actions.addParticipant),
+                sidebarButton("Synchronizer", AllIcons.General.Add, actions.addSynchronizer),
                 sidebarButton("Arrange", AllIcons.Actions.Refresh, actions.arrange),
                 sidebarButtonWithSource("Selection", AllIcons.Actions.Edit) { source -> actions.selectionMenu(source) }
             )
@@ -1510,7 +1625,7 @@ private class TopologyComponentSidebarPanel(
     private fun sidebarButton(text: String, icon: javax.swing.Icon?, action: () -> Unit): JButton =
         NetworkButton(text, icon).apply {
             horizontalAlignment = SwingConstants.CENTER
-            font = font.deriveFont(Font.BOLD, 10.5f)
+            font = font.deriveFont(Font.BOLD, TopologyGraphTheme.fontSize(10.5f))
             preferredSize = Dimension(118, 30)
             addActionListener { action() }
         }
@@ -1518,7 +1633,7 @@ private class TopologyComponentSidebarPanel(
     private fun sidebarButtonWithSource(text: String, icon: javax.swing.Icon?, action: (JButton) -> Unit): JButton =
         NetworkButton(text, icon).apply {
             horizontalAlignment = SwingConstants.CENTER
-            font = font.deriveFont(Font.BOLD, 10.5f)
+            font = font.deriveFont(Font.BOLD, TopologyGraphTheme.fontSize(10.5f))
             preferredSize = Dimension(118, 30)
             addActionListener { action(this) }
         }
