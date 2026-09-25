@@ -19,7 +19,6 @@ import com.moonsonglabs.daml.workspace.DamlWorkspaceService
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
-import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
@@ -31,7 +30,6 @@ import java.awt.Insets
 import java.awt.RenderingHints
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
-import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
 import javax.swing.BorderFactory
@@ -42,13 +40,11 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.JPanel
-import javax.swing.JScrollBar
 import javax.swing.JScrollPane
 import javax.swing.JSplitPane
 import javax.swing.ListSelectionModel
 import javax.swing.SwingUtilities
 import javax.swing.border.AbstractBorder
-import javax.swing.plaf.basic.BasicScrollBarUI
 
 internal enum class SandboxEndpointRisk {
     READ,
@@ -288,7 +284,7 @@ internal class ParticipantEndpointConsole(
     private data class RequestDraft(val method: String, val path: String, val body: String, val generated: Boolean)
     private val drafts = mutableMapOf<String, RequestDraft>()
     private var displayedDraftKey: String? = null
-    private var lastGeneratedBody = ""
+    private var lastGeneratedDraft = RequestDraft("", "", "", generated = true)
     private var requestSequence = 0L
     private var requestInFlight = false
     private var knownParties = emptyList<SandboxParty>()
@@ -331,8 +327,11 @@ internal class ParticipantEndpointConsole(
 
     private fun contextKey(): String = "${profile?.id}:${session.sessionId}:${participant?.id}:${session.status}"
 
+    private fun isGeneratedDraft(): Boolean =
+        methodField.text == lastGeneratedDraft.method && pathField.text == lastGeneratedDraft.path && bodyArea.text == lastGeneratedDraft.body
+
     private fun rememberDraft() {
-        displayedDraftKey?.let { drafts[it] = RequestDraft(methodField.text, pathField.text, bodyArea.text, bodyArea.text == lastGeneratedBody) }
+        displayedDraftKey?.let { drafts[it] = RequestDraft(methodField.text, pathField.text, bodyArea.text, isGeneratedDraft()) }
     }
 
     private fun discoverParties(force: Boolean = false) {
@@ -353,7 +352,7 @@ internal class ParticipantEndpointConsole(
                     knownParties = parties
                     chosenParties = parties.filter { it.local }.map { it.id }
                     partiesButton.text = "Parties (${chosenParties.orEmpty().size})…"
-                    if (bodyArea.text == lastGeneratedBody) {
+                    if (isGeneratedDraft()) {
                         drafts.remove(displayedDraftKey); displayedDraftKey = null
                         updateRequestFromPreset()
                     }
@@ -527,7 +526,7 @@ internal class ParticipantEndpointConsole(
         } else {
             ""
         }
-        lastGeneratedBody = bodyArea.text
+        lastGeneratedDraft = RequestDraft(methodField.text, pathField.text, bodyArea.text, generated = true)
         if (saved != null) { methodField.text = saved.method; pathField.text = saved.path; bodyArea.text = saved.body }
         bodyArea.caretPosition = 0
         responseMeta.foreground = TopologyGraphTheme.detail
@@ -819,44 +818,6 @@ private class EndpointPresetCell(
     }
 }
 
-private class EndpointButton(text: String, icon: javax.swing.Icon?) : JButton(text, icon) {
-    init {
-        foreground = TopologyGraphTheme.text
-        background = TopologyGraphTheme.panel
-        isOpaque = false
-        isContentAreaFilled = false
-        isBorderPainted = false
-        isFocusPainted = false
-        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        border = JBUI.Borders.empty(5, 11)
-        margin = Insets(0, 0, 0, 0)
-    }
-
-    override fun getPreferredSize(): Dimension {
-        val size = super.getPreferredSize()
-        return Dimension(size.width.coerceAtLeast(34), 34)
-    }
-
-    override fun paintComponent(g: Graphics) {
-        val g2 = g.create() as Graphics2D
-        try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.color = when {
-                !isEnabled -> endpointAlpha(TopologyGraphTheme.panelBorder, 45)
-                model.isPressed -> endpointAlpha(TopologyGraphTheme.selected, 70)
-                model.isRollover -> endpointAlpha(TopologyGraphTheme.hover, 34)
-                else -> TopologyGraphTheme.panel
-            }
-            g2.fillRoundRect(0, 0, width - 1, height - 1, 14, 14)
-            g2.color = if (model.isRollover && isEnabled) TopologyGraphTheme.hover else TopologyGraphTheme.panelBorder
-            g2.drawRoundRect(0, 0, width - 1, height - 1, 14, 14)
-        } finally {
-            g2.dispose()
-        }
-        super.paintComponent(g)
-    }
-}
-
 private class EndpointRoundBorder(
     private val color: Color,
     private val radius: Int
@@ -878,50 +839,6 @@ private class EndpointRoundBorder(
             g2.dispose()
         }
     }
-}
-
-private class EndpointSplitPaneUI : javax.swing.plaf.basic.BasicSplitPaneUI() {
-    override fun createDefaultDivider(): javax.swing.plaf.basic.BasicSplitPaneDivider =
-        object : javax.swing.plaf.basic.BasicSplitPaneDivider(this) {
-            init {
-                border = BorderFactory.createEmptyBorder()
-                background = TopologyGraphTheme.canvas
-            }
-
-            override fun getPreferredSize(): Dimension = Dimension(8, 8)
-
-            override fun paint(g: Graphics) {
-                g.color = TopologyGraphTheme.canvas
-                g.fillRect(0, 0, width, height)
-                g.color = endpointAlpha(TopologyGraphTheme.participantBorder, 100)
-                if (height >= width) {
-                    g.fillRoundRect(width / 2 - 1, 8, 2, height - 16, 4, 4)
-                } else {
-                    g.fillRoundRect(8, height / 2 - 1, width - 16, 2, 4, 4)
-                }
-            }
-        }
-}
-
-private fun JScrollBar.styleEndpointScrollBar() {
-    unitIncrement = 18
-    preferredSize = Dimension(10, 10)
-    setUI(object : BasicScrollBarUI() {
-        override fun configureScrollBarColors() {
-            thumbColor = endpointAlpha(TopologyGraphTheme.participantBorder, 135)
-            trackColor = TopologyGraphTheme.canvas
-        }
-
-        override fun createDecreaseButton(orientation: Int): JButton = zeroButton()
-        override fun createIncreaseButton(orientation: Int): JButton = zeroButton()
-
-        private fun zeroButton(): JButton =
-            JButton().apply {
-                preferredSize = Dimension(0, 0)
-                minimumSize = Dimension(0, 0)
-                maximumSize = Dimension(0, 0)
-            }
-    })
 }
 
 private fun endpointAlpha(color: Color, alpha: Int): Color =

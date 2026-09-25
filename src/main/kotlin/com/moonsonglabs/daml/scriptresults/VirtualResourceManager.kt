@@ -17,8 +17,6 @@ import org.eclipse.lsp4j.DidCloseTextDocumentParams
 import org.eclipse.lsp4j.DidOpenTextDocumentParams
 import org.eclipse.lsp4j.TextDocumentIdentifier
 import org.eclipse.lsp4j.TextDocumentItem
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -80,6 +78,7 @@ class VirtualResourceManager(private val project: Project) : Disposable {
     fun showResource(title: String, uri: String) {
         openVirtualResource(uri)
         ApplicationManager.getApplication().invokeLater {
+            if (project.isDisposed || activeUri != uri) return@invokeLater
             val tw = toolWindow() ?: return@invokeLater
             tw.show()
             val panel = panelOf(tw) ?: return@invokeLater
@@ -90,9 +89,6 @@ class VirtualResourceManager(private val project: Project) : Disposable {
                 if (it.html.isNotEmpty()) panel.setHtml(it.html)
                 it.notes.forEach(panel::setNote)
                 panel.setProgress(it.progressMs)
-            } ?: run {
-                panel.clearResource()
-                panel.setProgress(-1)
             }
         }
     }
@@ -183,22 +179,7 @@ class VirtualResourceManager(private val project: Project) : Disposable {
         return content.component as? ScriptResultsPanel
     }
 
-    private fun titleFor(uri: String): String {
-        // `daml://compiler?file=foo.daml&top-level-decl=bar`
-        val q = uri.substringAfter('?', "")
-        val params = q.split('&').mapNotNull {
-            val (k, v) = it.split('=', limit = 2).let { p -> if (p.size == 2) p else return@mapNotNull null }
-            URLDecoder.decode(k, StandardCharsets.UTF_8) to URLDecoder.decode(v, StandardCharsets.UTF_8)
-        }.toMap()
-        val decl = params["top-level-decl"]
-        val file = params["file"]?.substringAfterLast('/')
-        return when {
-            decl != null && file != null -> "$decl - $file"
-            decl != null -> decl
-            file != null -> file
-            else -> "DAML Script Results"
-        }
-    }
+    private fun titleFor(uri: String): String = DamlScriptResource.parse(uri)?.title ?: "DAML Script Results"
 
     companion object {
         fun getInstance(project: Project): VirtualResourceManager = project.service()

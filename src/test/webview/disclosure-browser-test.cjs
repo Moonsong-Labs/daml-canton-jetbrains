@@ -159,3 +159,22 @@ test('new results clear stale notes and server messages are distinguishable from
   assert.equal(await page.evaluate(() => state.notes.length), 0);
   assert.equal(await page.locator('#progress_status').innerText(), 'Result available');
 });
+
+test('opening another script resets transaction expansion and selection state', async () => {
+  await page.evaluate(() => selectView('txTree'));
+  await page.locator('.tx-event-summary').first().click();
+  await page.waitForFunction(() => state.expandedEvents.size > 0);
+  await page.getByRole('button', { name: 'Transactions only', exact: true }).click();
+  await page.waitForFunction(() => state.collapsedTransactions.size > 0);
+  await page.evaluate(() => setHtmlContent(''));
+  assert.deepEqual(await page.evaluate(() => ({
+    expanded: state.expandedEvents.size,
+    collapsed: state.collapsedTransactions.size,
+    branches: state.collapsedBranches.size,
+    contract: state.selectedContractId,
+    transaction: state.selectedTransactionId,
+  })), { expanded: 0, collapsed: 0, branches: 0, contract: null, transaction: null });
+  await page.evaluate(html => setHtmlContent(html), FIXTURE);
+  assert.equal(await page.locator('.tx-event-details[open]').count(), 0);
+  assert.equal(await page.locator('.tx-outline-group:not([open])').count(), 0);
+});

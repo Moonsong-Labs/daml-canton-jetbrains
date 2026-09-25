@@ -95,7 +95,7 @@ object DamlHighlightingClassifier {
             val separator = tokens.indexOfFirst { it.text == ":" || it.text == "=" || it.text == "<-" }
             when (tokens.getOrNull(separator)?.text) {
                 "=" -> separator > 0 // A definition with explicit arguments, including local helpers.
-                ":" -> hasFunctionType(tokens.drop(separator + 1).map { it.text })
+                ":" -> hasFunctionType(model.explicitTypeTokens(offset).map { it.text })
                 else -> false
             }
         }

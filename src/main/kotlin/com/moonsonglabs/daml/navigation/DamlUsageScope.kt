@@ -16,6 +16,7 @@ class DamlUsageScope private constructor(project: Project) : GlobalSearchScope(p
     override fun isSearchInLibraries() = false
 
     companion object {
+        fun restrict(project: Project, scope: GlobalSearchScope): GlobalSearchScope = scope.intersectWith(DamlUsageScope(project))
         fun restrict(project: Project, scope: SearchScope): SearchScope = scope.intersectWith(DamlUsageScope(project))
 
         fun accepts(project: Project, file: VirtualFile?): Boolean {
@@ -27,8 +28,8 @@ class DamlUsageScope private constructor(project: Project) : GlobalSearchScope(p
             val isUnderProject = basePath != null && file.path.startsWith("$basePath/")
             var current: VirtualFile? = file
             while (current != null && current.path != basePath) {
-                if (current.name.startsWith('.') || current.name in DamlSymbolIndex.IGNORED_DIRECTORIES) return false
                 if (!isUnderProject && current == contentRoot) break
+                if (current.name.startsWith('.') || current.name in DamlSymbolIndex.IGNORED_DIRECTORIES) return false
                 current = current.parent
             }
             return true

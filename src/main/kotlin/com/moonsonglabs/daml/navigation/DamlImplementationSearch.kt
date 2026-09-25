@@ -5,6 +5,7 @@ import com.intellij.openapi.project.DumbService
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiManager
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.search.PsiSearchScopeUtil
 import com.intellij.psi.search.searches.DefinitionsScopedSearch
 import com.intellij.util.Processor
 import com.intellij.util.QueryExecutor
@@ -24,6 +25,7 @@ class DamlImplementationSearch : QueryExecutor<PsiElement, DefinitionsScopedSear
         val files = FileBasedIndex.getInstance().getContainingFiles(DamlSymbolIndex.NAME, DamlSymbolIndex.IMPLEMENTATION_PREFIX + owner.name, scope)
         for (file in files) {
             ProgressManager.checkCanceled()
+            if (!DamlUsageScope.accepts(named.project, file)) continue
             val psi = PsiManager.getInstance(named.project).findFile(file) ?: continue
             val source = DamlSourceModel.get(psi)
             for (instance in source.symbols.filter { it.kind == DamlSourceModel.Kind.INSTANCE && it.name == owner.name }) {
@@ -32,7 +34,7 @@ class DamlImplementationSearch : QueryExecutor<PsiElement, DefinitionsScopedSear
                 if (resolved.containingFile != named.containingFile || resolved.textOffset != owner.start) continue
                 val destination = if (symbol.kind == DamlSourceModel.Kind.INTERFACE) source.owner(instance) else source.symbols.firstOrNull { it.owner == instance.start && it.name == symbol.name }
                 val target = destination?.let { DamlNamedElement.at(psi, it.start) } ?: continue
-                if (!consumer.process(target)) return false
+                if (PsiSearchScopeUtil.isInScope(parameters.scope, target) && !consumer.process(target)) return false
             }
         }
         return true

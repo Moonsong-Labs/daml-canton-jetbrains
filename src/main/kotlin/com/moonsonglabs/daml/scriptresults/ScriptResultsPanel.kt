@@ -6,10 +6,12 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBase
@@ -53,23 +55,22 @@ class ScriptResultsPanel(private val project: Project) : JPanel(BorderLayout()),
         border = javax.swing.BorderFactory.createEmptyBorder(4, 8, 4, 8)
     }
 
-    private var resourceUri: String? = null
+    private var resource: DamlScriptResource.Reference? = null
     private val sourceButton = javax.swing.JButton("Open source").apply {
         isEnabled = false
         addActionListener {
-            val params = resourceUri?.substringAfter('?')?.split('&')?.associate {
-                val pair = it.split('=', limit = 2)
-                pair[0] to java.net.URLDecoder.decode(pair.getOrElse(1) { "" }, StandardCharsets.UTF_8)
-            }.orEmpty()
-            val path = params["file"] ?: return@addActionListener
-            val file = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(path) ?: return@addActionListener
-            val text = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(file)?.text.orEmpty()
-            val offset = DamlScriptResource.findScripts(text).find { it.name == params["top-level-decl"] }?.startOffset ?: 0
-            com.intellij.openapi.fileEditor.OpenFileDescriptor(project, file, offset).navigate(true)
+            val source = resource ?: return@addActionListener
+            val file = LocalFileSystem.getInstance().findFileByPath(source.filePath) ?: return@addActionListener
+            val text = FileDocumentManager.getInstance().getDocument(file)?.text.orEmpty()
+            val offset = DamlScriptResource.findScripts(text).find { it.name == source.declaration }?.startOffset ?: 0
+            OpenFileDescriptor(project, file, offset).navigate(true)
         }
     }
 
-    fun setResourceUri(uri: String) { resourceUri = uri; sourceButton.isEnabled = true }
+    fun setResourceUri(uri: String) {
+        resource = DamlScriptResource.parse(uri)
+        sourceButton.isEnabled = resource != null
+    }
 
     init {
         ApplicationManager.getApplication().messageBus.connect(this).subscribe(com.intellij.ide.ui.LafManagerListener.TOPIC,

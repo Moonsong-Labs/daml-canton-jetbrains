@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
+import com.intellij.util.execution.ParametersListUtil
 import java.awt.BorderLayout
 import javax.swing.*
 
@@ -18,6 +19,7 @@ class CantonRunSettingsEditor(project: Project) : SettingsEditor<CantonRunConfig
     private val validation = JBLabel()
     private val advanced = JCheckBox("Advanced arguments and command preview")
     private val preview = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
+    private var configuration: CantonRunConfiguration? = null
     private val advancedPanel = JPanel(BorderLayout()).apply {
         add(formRow("Extra arguments:", argsField), BorderLayout.NORTH); add(preview, BorderLayout.CENTER)
     }
@@ -39,15 +41,24 @@ class CantonRunSettingsEditor(project: Project) : SettingsEditor<CantonRunConfig
         guidance.text = if (script) "Runs a console script with run <script> and exits." else "Starts Canton with a configuration. Bootstrap is configured separately."
         validation.text = if (targetField.text.isBlank()) "Required: choose a ${if (script) "script" else "configuration"} file." else " "
         advancedPanel.isVisible = advanced.isSelected
-        preview.text = "canton ${if (script) "run" else "--config"} \"${targetField.text}\" ${argsField.text}"
+        configuration?.let { original ->
+            val copy = original.clone() as CantonRunConfiguration
+            copyValues(copy)
+            preview.text = ParametersListUtil.join(copy.buildCommandLine())
+        }
         panel.revalidate()
     }
     override fun resetEditorFrom(configuration: CantonRunConfiguration) {
+        this.configuration = configuration
         modeCombo.selectedItem = configuration.mode; workspaceField.text = configuration.workspacePath
         targetField.text = configuration.targetPath; argsField.text = configuration.extraArguments
+        updateForm()
     }
     override fun applyEditorTo(configuration: CantonRunConfiguration) {
         if (targetField.text.isBlank()) throw ConfigurationException(validation.text)
+        copyValues(configuration)
+    }
+    private fun copyValues(configuration: CantonRunConfiguration) {
         configuration.mode = modeCombo.selectedItem as? CantonMode ?: CantonMode.CONFIG
         configuration.workspacePath = workspaceField.text.trim(); configuration.targetPath = targetField.text.trim()
         configuration.extraArguments = argsField.text

@@ -318,6 +318,27 @@ class ParticipantEndpointConsoleTest : BasePlatformTestCase() {
         assertFalse(sent)
     }
 
+    fun `test method and path edits survive preset and participant switches without body edits`() {
+        val profile = twoParticipantProfile()
+        val console = console { _, _, _, _, _ -> SandboxHttpResponse(200, "{}", emptyMap(), 0) }
+        val session = runningState(profile)
+        console.setContext(profile, session, profile.participants[0].id)
+        console.selectPresetForTest("parties")
+        val method = console.privateField<com.intellij.ui.components.JBTextField>("methodField")
+        val path = console.privateField<com.intellij.ui.components.JBTextField>("pathField")
+        val customPath = "/v2/parties?pageSize=5"
+        method.text = "HEAD"
+        path.text = customPath
+        console.selectPresetForTest("packages")
+        console.selectPresetForTest("parties")
+        assertEquals("HEAD", method.text)
+        assertEquals(customPath, path.text)
+        console.setContext(profile, session, profile.participants[1].id)
+        console.setContext(profile, session, profile.participants[0].id)
+        assertEquals("HEAD", method.text)
+        assertEquals(customPath, path.text)
+    }
+
     private fun console(
         confirm: (SandboxEndpointPreset) -> Boolean = { true },
         sender: (Endpoint, String, String, String?, String?) -> SandboxHttpResponse

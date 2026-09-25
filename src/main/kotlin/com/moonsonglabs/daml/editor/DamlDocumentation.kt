@@ -13,7 +13,6 @@ internal object DamlDocumentation {
     private val structural = setOf(Kind.TEMPLATE, Kind.CHOICE, Kind.INTERFACE, Kind.DATA, Kind.NEWTYPE, Kind.TYPE, Kind.CLASS, Kind.EXCEPTION)
     private val callable = setOf(Kind.FUNCTION, Kind.METHOD, Kind.VALUE)
     private val quantifiers = Regex("^forall\\s+[^.]+\\.\\s*")
-    private val typeStops = setOf("with", "where", "controller", "do", "signatory", "observer", "ensure")
 
     fun hasDetails(target: DamlNamedElement): Boolean {
         val symbol = target.symbol ?: return false
@@ -82,17 +81,7 @@ internal object DamlDocumentation {
 
     private fun explicitType(model: DamlSourceModel, symbol: Symbol): String? {
         if (symbol.kind !in callable && symbol.kind !in setOf(Kind.CHOICE, Kind.FIELD)) return null
-        val header = model.lineAt(symbol.start)
-        val colon = header.tokens.takeWhile { it.text != "=" }.firstOrNull { it.start > symbol.start && it.text == ":" } ?: return null
-        val tokens = header.tokens.filter { it.start > colon.start }.toMutableList()
-        val index = model.tokens.firstOrNull { it.start == symbol.start }?.line ?: return null
-        for (line in model.lines.drop(index + 1)) {
-            if (line.tokens.isEmpty()) continue
-            if (line.indent <= header.indent || line.tokens.first().text in typeStops ||
-                line.tokens.any { it.text in setOf("=", ":", "<-") }) break
-            tokens += line.tokens
-        }
-        return source(tokens.takeWhile { it.text !in typeStops }).trim().takeIf { it.isNotEmpty() }
+        return source(model.explicitTypeTokens(symbol.start)).trim().takeIf { it.isNotEmpty() }
     }
 
     private fun source(tokens: List<DamlSourceModel.Token>): String = buildString {

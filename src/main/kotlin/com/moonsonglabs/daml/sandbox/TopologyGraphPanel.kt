@@ -203,13 +203,6 @@ class TopologyGraphPanel : JPanel(), javax.swing.Scrollable {
     private var propertiesCloseBounds: Rectangle? = null
     private var dragMoved = false
     private var suppressNextClick = false
-    private var runtimeStatus: SandboxSessionStatus = SandboxSessionStatus.STOPPED
-    private var healthChecked = false
-    private var onlineParticipants: Set<String> = emptySet()
-    private var activityToken: Int? = null
-    private var lastActivityMillis = 0L
-    private var flowPhase = 0.0
-    private var lastAnimationNanos = 0L
     private var pendingSingleClickTimer: Timer? = null
     private var pendingSingleClickSelection: Selection? = null
     private val dragOverrides = mutableMapOf<String, Pair<Int, Int>>()
@@ -231,12 +224,6 @@ class TopologyGraphPanel : JPanel(), javax.swing.Scrollable {
         val multiClick = Toolkit.getDefaultToolkit().getDesktopProperty("awt.multiClickInterval") as? Int ?: 500
         (multiClick / 2).coerceIn(140, 220)
     }.getOrDefault(180)
-    private val flowTimer = Timer(16) {
-        advanceFlowAnimation()
-    }.apply {
-        isRepeats = true
-    }
-
     init {
         preferredSize = graphSize()
         minimumSize = Dimension(360, 260)
@@ -413,42 +400,8 @@ class TopologyGraphPanel : JPanel(), javax.swing.Scrollable {
         dragOverrides.clear()
         preferredSize = graphSize()
         revalidate()
-        updateFlowTimer()
         repaint()
     }
-
-    fun setRuntimeState(status: SandboxSessionStatus, health: List<HealthSnapshot>, activityToken: Int) {
-        val wasAnimating = isRuntimeFlowEnabled()
-        val nowMillis = System.currentTimeMillis()
-        val freshHealth = health.filter { nowMillis - it.timestampMillis <= 30_000 }
-        runtimeStatus = status
-        healthChecked = freshHealth.isNotEmpty()
-        onlineParticipants = freshHealth
-            .filter { it.endpoint.kind == "json" && (it.live || it.ready) }
-            .map { it.endpoint.nodeId }
-            .toSet()
-        val previousToken = this.activityToken
-        this.activityToken = activityToken
-        if (previousToken != null && previousToken != activityToken && isRuntimeFlowEnabled()) {
-            pulseFlow()
-        }
-        if (wasAnimating != isRuntimeFlowEnabled()) {
-            lastAnimationNanos = 0L
-        }
-        updateFlowTimer()
-        repaint()
-    }
-
-    fun pulseFlow() {
-        if (!isRuntimeFlowEnabled()) return
-        lastActivityMillis = System.currentTimeMillis()
-        updateFlowTimer()
-        repaint()
-    }
-
-    internal fun isRuntimeFlowEnabledForTest(): Boolean = isRuntimeFlowEnabled()
-
-    internal fun flowBoostForTest(): Double = activityBoost(System.currentTimeMillis())
 
     fun select(selection: Selection?) {
         val previous = selected
@@ -570,14 +523,8 @@ class TopologyGraphPanel : JPanel(), javax.swing.Scrollable {
         }
     }
 
-    override fun addNotify() {
-        super.addNotify()
-        updateFlowTimer()
-    }
-
     override fun removeNotify() {
         cancelPendingSingleClick()
-        flowTimer.stop()
         super.removeNotify()
     }
 
@@ -909,43 +856,6 @@ class TopologyGraphPanel : JPanel(), javax.swing.Scrollable {
         g2.color = wireColor
     }
 
-    private fun drawRuntimeWire(g2: Graphics2D, wire: DrawWire, color: Color, intensity: Double) {
-        val path = QuadCurve2D.Float(
-            wire.from.first.toFloat(),
-            wire.from.second.toFloat(),
-            wire.control.first.toFloat(),
-            wire.control.second.toFloat(),
-            wire.to.first.toFloat(),
-            wire.to.second.toFloat()
-        )
-
-        g2.stroke = BasicStroke(5.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-        g2.color = withAlpha(color, if (intensity > 0.0) (30 + intensity * 42).roundToInt() else 22)
-        g2.draw(path)
-
-        g2.stroke = BasicStroke(1.9f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-        g2.color = withAlpha(color, if (intensity > 0.0) 210 else 150)
-        g2.draw(path)
-
-        if (intensity > 0.0) {
-            val dash = floatArrayOf(10f, (25f - (8f * intensity).toFloat()).coerceAtLeast(14f))
-            g2.stroke = BasicStroke(
-                (1.35f + intensity.toFloat() * 1.15f),
-                BasicStroke.CAP_ROUND,
-                BasicStroke.JOIN_ROUND,
-                0f,
-                dash,
-                (flowPhase * 96f).toFloat()
-            )
-            g2.color = withAlpha(Color.WHITE, (38 + intensity * 70).roundToInt())
-            g2.draw(path)
-            drawFlowPackets(g2, wire, color, intensity)
-        }
-
-        drawPort(g2, wire.from, color)
-        drawPort(g2, wire.to, color)
-    }
-
     private fun drawDormantWire(g2: Graphics2D, wire: DrawWire) {
         val path = QuadCurve2D.Float(
             wire.from.first.toFloat(),
@@ -967,76 +877,6 @@ class TopologyGraphPanel : JPanel(), javax.swing.Scrollable {
         g2.draw(path)
         drawPort(g2, wire.from, TopologyGraphTheme.edgeMuted)
         drawPort(g2, wire.to, TopologyGraphTheme.edgeMuted)
-    }
-
-    private fun drawFlowPackets(g2: Graphics2D, wire: DrawWire, color: Color, intensity: Double) {
-        val packetCount = if (intensity > 0.7) 4 else 3
-        val radius = (2.4 + 2.8 * intensity).toFloat()
-        repeat(packetCount) { index ->
-            val t = (flowPhase + index.toDouble() / packetCount) % 1.0
-            val point = wire.pointAt(t)
-            val x = point.first.toFloat()
-            val y = point.second.toFloat()
-            g2.color = withAlpha(color, (90 + 120 * intensity).roundToInt())
-            g2.fillOval(
-                (x - radius).roundToInt(),
-                (y - radius).roundToInt(),
-                (radius * 2).roundToInt(),
-                (radius * 2).roundToInt()
-            )
-            g2.color = withAlpha(Color.WHITE, (50 + 85 * intensity).roundToInt())
-            val core = (radius * 0.42f).coerceAtLeast(1.1f)
-            g2.fillOval(
-                (x - core).roundToInt(),
-                (y - core).roundToInt(),
-                (core * 2).roundToInt(),
-                (core * 2).roundToInt()
-            )
-        }
-    }
-
-    private fun flowIntensityFor(wire: DrawWire): Double {
-        if (!isRuntimeFlowEnabled()) return 0.0
-        if (healthChecked && wire.participantId !in onlineParticipants) return 0.0
-        return 0.28 + 0.72 * activityBoost(System.currentTimeMillis())
-    }
-
-    private fun activityBoost(nowMillis: Long): Double {
-        val age = nowMillis - lastActivityMillis
-        if (age !in 0..4_500) return 0.0
-        return 1.0 - age / 4_500.0
-    }
-
-    // A configured edge is not evidence of transaction traffic.
-    private fun isRuntimeFlowEnabled(): Boolean = false
-
-    private fun advanceFlowAnimation() {
-        if (!isRuntimeFlowEnabled()) {
-            updateFlowTimer()
-            return
-        }
-        val now = System.nanoTime()
-        val elapsedSeconds = if (lastAnimationNanos == 0L) {
-            0.0
-        } else {
-            ((now - lastAnimationNanos) / 1_000_000_000.0).coerceIn(0.0, 0.08)
-        }
-        lastAnimationNanos = now
-        val speed = 0.085 + 0.45 * activityBoost(System.currentTimeMillis())
-        flowPhase = (flowPhase + elapsedSeconds * speed) % 1.0
-        repaint()
-        updateFlowTimer()
-    }
-
-    private fun updateFlowTimer() {
-        val shouldRun = isShowing && isRuntimeFlowEnabled()
-        when {
-            shouldRun && !flowTimer.isRunning -> {
-                lastAnimationNanos = 0L
-                flowTimer.start()
-            }
-            !shouldRun && flowTimer.isRunning -> flowTimer.stop()
-        }
     }
 
     private fun scheduleSingleClickSelection(selection: Selection) {

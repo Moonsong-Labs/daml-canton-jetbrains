@@ -13,7 +13,6 @@ import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
-import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
@@ -24,8 +23,6 @@ import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.LayoutManager
 import java.awt.RenderingHints
-import java.awt.event.FocusAdapter
-import java.awt.event.FocusEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.BorderFactory
@@ -47,9 +44,6 @@ import javax.swing.ListSelectionModel
 import javax.swing.SwingUtilities
 import javax.swing.JTextPane
 import javax.swing.SwingConstants
-import javax.swing.plaf.basic.BasicSplitPaneDivider
-import javax.swing.plaf.basic.BasicSplitPaneUI
-import javax.swing.plaf.basic.BasicTabbedPaneUI
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.DefaultTableModel
 import javax.swing.table.JTableHeader
@@ -69,7 +63,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
     private val graph = TopologyGraphPanel()
 
     private val profileComboModel = DefaultComboBoxModel<SandboxProfile>()
-    private val profileCombo = ProfileComboBox(profileComboModel) { deleteProfile(it) }
+    private val profileCombo = ProfileComboBox(profileComboModel)
     private val networkStatusBadge = JLabel()
     private val nameField = JBTextField()
     private val portBaseField = JBTextField()
@@ -144,7 +138,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
 
     private fun toolbar(): JComponent {
         profileCombo.addActionListener {
-            if (!loadingProfile && !profileCombo.isDeletingProfileFromPopup) (profileCombo.selectedItem as? SandboxProfile)?.let { profiles.selectProfile(it.id) }
+            if (!loadingProfile) (profileCombo.selectedItem as? SandboxProfile)?.let { profiles.selectProfile(it.id) }
         }
         startButton.addActionListener {
             saveProfileFields()
@@ -473,7 +467,7 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
 
     private fun doGenerate() {
         saveProfileFields()
-        val profile = currentProfile
+        val profile = currentProfile.deepCopy()
         ApplicationManager.getApplication().executeOnPooledThread {
             runCatching { sessions.generate(profile) }
                 .onSuccess { generated ->
@@ -1014,11 +1008,6 @@ class CantonSandboxPanel(private val project: Project) : JPanel(BorderLayout()),
         pendingLabel.foreground = TopologyGraphTheme.warning
         statusMessage.text = if (owns && draftView.isSelected) "Draft configuration — changes apply after restart; the running network is unchanged." else effectiveState.message
         refreshGraph()
-        graph.setRuntimeState(
-            effectiveState.status,
-            effectiveState.health,
-            if (belongsToCurrentProfile) state.log.hashCode() else 0
-        )
         updateParticipantEndpointConsole()
         updateSyncDomainEndpointConsole()
         renderInspector(currentTopologySelection)
@@ -1637,127 +1626,4 @@ private class TopologyComponentSidebarPanel(
             preferredSize = Dimension(118, 30)
             addActionListener { action(this) }
         }
-}
-
-private class TopologySplitPaneUI : BasicSplitPaneUI() {
-    override fun createDefaultDivider(): BasicSplitPaneDivider =
-        object : BasicSplitPaneDivider(this) {
-            init {
-                border = BorderFactory.createEmptyBorder()
-                background = TopologyGraphTheme.canvas
-            }
-
-            override fun getPreferredSize(): Dimension = Dimension(8, 8)
-
-            override fun paint(g: Graphics) {
-                val g2 = g.create() as Graphics2D
-                try {
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                    g2.color = TopologyGraphTheme.canvas
-                    g2.fillRect(0, 0, width, height)
-
-                    if (height >= width) {
-                        val center = width / 2
-                        g2.color = dividerAlpha(TopologyGraphTheme.panelBorder, 170)
-                        g2.fillRoundRect(center - 3, 0, 6, height, 6, 6)
-                        g2.color = dividerAlpha(TopologyGraphTheme.participantBorder, 105)
-                        g2.fillRoundRect(center - 1, 8, 2, height - 16, 4, 4)
-                        g2.color = dividerAlpha(TopologyGraphTheme.hover, 55)
-                        g2.drawLine(center + 2, 12, center + 2, height - 12)
-                    } else {
-                        val center = height / 2
-                        g2.color = dividerAlpha(TopologyGraphTheme.panelBorder, 170)
-                        g2.fillRoundRect(0, center - 3, width, 6, 6, 6)
-                        g2.color = dividerAlpha(TopologyGraphTheme.participantBorder, 105)
-                        g2.fillRoundRect(8, center - 1, width - 16, 2, 4, 4)
-                        g2.color = dividerAlpha(TopologyGraphTheme.hover, 55)
-                        g2.drawLine(12, center + 2, width - 12, center + 2)
-                    }
-                } finally {
-                    g2.dispose()
-                }
-            }
-        }
-}
-
-private fun dividerAlpha(color: Color, alpha: Int): Color =
-    Color(color.red, color.green, color.blue, alpha.coerceIn(0, 255))
-
-private class NetworkTabbedPaneUI : BasicTabbedPaneUI() {
-    override fun installDefaults() {
-        super.installDefaults()
-        tabInsets = Insets(4, 14, 4, 14)
-        selectedTabPadInsets = Insets(0, 0, 0, 0)
-        contentBorderInsets = Insets(0, 0, 0, 0)
-    }
-
-    override fun paintContentBorder(g: Graphics, tabPlacement: Int, selectedIndex: Int) {
-        g.color = TopologyGraphTheme.panelBorder
-        g.drawLine(0, tabPane.height - 1, tabPane.width, tabPane.height - 1)
-    }
-
-    override fun paintTabBackground(
-        g: Graphics,
-        tabPlacement: Int,
-        tabIndex: Int,
-        x: Int,
-        y: Int,
-        w: Int,
-        h: Int,
-        isSelected: Boolean
-    ) {
-        val g2 = g.create() as Graphics2D
-        try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.color = if (isSelected) networkAlpha(TopologyGraphTheme.selected, 72) else TopologyGraphTheme.canvas
-            g2.fillRoundRect(x + 2, y + 2, w - 4, h - 4, 10, 10)
-        } finally {
-            g2.dispose()
-        }
-    }
-
-    override fun paintTabBorder(
-        g: Graphics,
-        tabPlacement: Int,
-        tabIndex: Int,
-        x: Int,
-        y: Int,
-        w: Int,
-        h: Int,
-        isSelected: Boolean
-    ) {
-        val g2 = g.create() as Graphics2D
-        try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.color = if (isSelected) TopologyGraphTheme.selected else networkAlpha(TopologyGraphTheme.panelBorder, 120)
-            g2.drawRoundRect(x + 2, y + 2, w - 4, h - 4, 10, 10)
-        } finally {
-            g2.dispose()
-        }
-    }
-
-    override fun paintFocusIndicator(
-        g: Graphics,
-        tabPlacement: Int,
-        rects: Array<java.awt.Rectangle>,
-        tabIndex: Int,
-        iconRect: java.awt.Rectangle,
-        textRect: java.awt.Rectangle,
-        isSelected: Boolean
-    ) = Unit
-
-    override fun paintText(
-        g: Graphics,
-        tabPlacement: Int,
-        font: Font,
-        metrics: java.awt.FontMetrics,
-        tabIndex: Int,
-        title: String,
-        textRect: java.awt.Rectangle,
-        isSelected: Boolean
-    ) {
-        g.font = font.deriveFont(if (isSelected) Font.BOLD else Font.PLAIN)
-        g.color = if (isSelected) TopologyGraphTheme.text else TopologyGraphTheme.detail
-        g.drawString(title, textRect.x, textRect.y + metrics.ascent)
-    }
 }

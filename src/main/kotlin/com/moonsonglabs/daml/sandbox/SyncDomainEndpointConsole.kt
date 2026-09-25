@@ -21,12 +21,9 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
 import java.awt.Dimension
-import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
-import java.awt.GridBagConstraints
-import java.awt.GridBagLayout
 import java.awt.Insets
 import java.awt.RenderingHints
 import java.net.InetSocketAddress
@@ -636,31 +633,5 @@ private class SyncDiagnosticScrollBarUI : BasicScrollBarUI() {
             minimumSize = Dimension(0, 0)
             maximumSize = Dimension(0, 0)
             border = BorderFactory.createEmptyBorder()
-        }
-}
-
-private class SyncDiagnosticSplitPaneUI : javax.swing.plaf.basic.BasicSplitPaneUI() {
-    override fun createDefaultDivider(): javax.swing.plaf.basic.BasicSplitPaneDivider =
-        object : javax.swing.plaf.basic.BasicSplitPaneDivider(this) {
-            init {
-                border = BorderFactory.createEmptyBorder()
-                background = TopologyGraphTheme.canvas
-            }
-
-            override fun paint(g: Graphics) {
-                g.color = TopologyGraphTheme.canvas
-                g.fillRect(0, 0, width, height)
-                val g2 = g.create() as Graphics2D
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                g2.color = networkAlpha(TopologyGraphTheme.edge, 110)
-                if (orientation == JSplitPane.HORIZONTAL_SPLIT) {
-                    val x = width / 2 - 1
-                    g2.fillRoundRect(x, 8, 2, height - 16, 2, 2)
-                } else {
-                    val y = height / 2 - 1
-                    g2.fillRoundRect(8, y, width - 16, 2, 2, 2)
-                }
-                g2.dispose()
-            }
         }
 }

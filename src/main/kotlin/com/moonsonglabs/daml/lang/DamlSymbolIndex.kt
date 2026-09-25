@@ -12,18 +12,17 @@ import com.moonsonglabs.daml.DamlFileType
 
 class DamlSymbolIndex : ScalarIndexExtension<String>() {
     override fun getName(): ID<String, Void> = NAME
-    override fun getVersion() = 2
+    override fun getVersion() = 3
     override fun dependsOnFileContent() = true
     override fun getInputFilter(): FileBasedIndex.InputFilter = DefaultFileTypeSpecificInputFilter(DamlFileType)
     override fun getKeyDescriptor(): KeyDescriptor<String> = EnumeratorStringDescriptor.INSTANCE
     override fun getIndexer(): DataIndexer<String, Void, FileContent> = DataIndexer { input ->
-        if (!isSource(input.file.path)) emptyMap() else {
-            val model = DamlSourceModel.parse(input.contentAsText.toString())
-            buildMap {
-                model.symbols.filter { it.kind == DamlSourceModel.Kind.INSTANCE }.forEach { put(IMPLEMENTATION_PREFIX + it.name, null) }
-                model.module?.let { put(MODULE_PREFIX + it, null) }
-                model.symbols.filter { it.kind !in DamlSourceModel.PRIVATE_KINDS }.forEach { put(SYMBOL_PREFIX + it.name, null) }
-            }
+        // Index content independently of project roots; query scopes exclude generated files.
+        val model = DamlSourceModel.parse(input.contentAsText.toString())
+        buildMap {
+            model.symbols.filter { it.kind == DamlSourceModel.Kind.INSTANCE }.forEach { put(IMPLEMENTATION_PREFIX + it.name, null) }
+            model.module?.let { put(MODULE_PREFIX + it, null) }
+            model.symbols.filter { it.kind !in DamlSourceModel.PRIVATE_KINDS }.forEach { put(SYMBOL_PREFIX + it.name, null) }
         }
     }
     companion object {
@@ -32,6 +31,5 @@ class DamlSymbolIndex : ScalarIndexExtension<String>() {
         const val IMPLEMENTATION_PREFIX = "implementation:"
         const val SYMBOL_PREFIX = "symbol:"
         val IGNORED_DIRECTORIES = setOf(".daml", "build", "out", "node_modules", ".gradle", ".git")
-        fun isSource(path: String) = path.split('/').none { it in IGNORED_DIRECTORIES }
     }
 }

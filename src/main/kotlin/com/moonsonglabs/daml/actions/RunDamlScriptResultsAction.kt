@@ -22,16 +22,17 @@ class RunDamlScriptResultsAction : AnAction() {
 
         val offset = e.getData(CommonDataKeys.EDITOR)?.caretModel?.offset ?: 0
         val candidates = DamlScriptResource.findScripts(psiFile.text)
-        val script = DamlScriptResource.scriptAt(psiFile.text, offset) ?: when (candidates.size) {
-            0 -> null
-            1 -> candidates.single()
-            else -> Messages.showEditableChooseDialog("Choose a script for IDE Script Results.", "IDE Script Results", null,
-                candidates.map { it.name }.toTypedArray(), candidates.first().name, null)
-                ?.let { name -> candidates.find { it.name == name } }
-        }
-        if (script == null) {
+        if (candidates.isEmpty()) {
             DamlNotifier.warn(project, "No DAML script declaration found in ${file.name}.")
             return
+        }
+        val script = DamlScriptResource.scriptAt(psiFile.text, offset) ?: when (candidates.size) {
+            1 -> candidates.single()
+            else -> {
+                val index = Messages.showChooseDialog(project, "Choose a script for IDE Script Results.", "IDE Script Results", null,
+                    candidates.map { it.name }.toTypedArray(), candidates.first().name)
+                candidates.getOrNull(index) ?: return
+            }
         }
 
         VirtualResourceManager.getInstance(project).showResource(

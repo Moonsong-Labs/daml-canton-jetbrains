@@ -55,11 +55,13 @@ class DamlRunConfiguration(
         }
 
     override fun checkConfiguration() {
-        if (command == DamlCommand.SCRIPT && scriptName.isBlank())
-            throw com.intellij.execution.configurations.RuntimeConfigurationError("Choose a script (Module:script).")
-        if (command == DamlCommand.SCRIPT && darPath.isBlank() && !extraArguments.contains("--dar"))
-            throw com.intellij.execution.configurations.RuntimeConfigurationError("Choose a compiled DAR for CLI Run Script.")
+        validationError(command, scriptName, darPath, additionalArguments())?.let {
+            throw com.intellij.execution.configurations.RuntimeConfigurationError(it)
+        }
     }
+
+    private fun additionalArguments(): List<String> =
+        CommandLineWords.split(DamlProjectSettings.getInstance(project).extraArguments) + CommandLineWords.split(extraArguments)
 
     fun buildCommandLine(): List<String> {
         val settings = DamlProjectSettings.getInstance(project)
@@ -73,7 +75,7 @@ class DamlRunConfiguration(
             DamlCommand.TEST -> args += "test"
             DamlCommand.SCRIPT -> {
                 args += "script"
-                if (darPath.isNotBlank()) { args += "--dar"; args += darPath }
+                if (darPath.isNotBlank()) { args += DAR_OPTION; args += darPath }
                 if (scriptName.isNotBlank()) {
                     args += "--script-name"
                     args += scriptName
@@ -85,8 +87,7 @@ class DamlRunConfiguration(
             args += "--files"
             args += filePath
         }
-        args += CommandLineWords.split(settings.extraArguments)
-        args += CommandLineWords.split(extraArguments)
+        args += additionalArguments()
         return args
     }
 
@@ -117,6 +118,22 @@ class DamlRunConfiguration(
         scriptName = JDOMExternalizerUtil.readField(element, "scriptName") ?: ""
         darPath = JDOMExternalizerUtil.readField(element, "darPath") ?: ""
         extraArguments = JDOMExternalizerUtil.readField(element, "extraArguments") ?: ""
+    }
+
+    companion object {
+        internal const val DAR_OPTION = "--dar"
+
+        internal fun validationError(command: DamlCommand, scriptName: String, darPath: String, arguments: List<String>): String? {
+            if (command != DamlCommand.SCRIPT) return null
+            if (scriptName.isBlank()) return "Choose a script (Module:script)."
+            val options = arguments.takeWhile { it != "--" }
+            val hasDarArgument = options.indices.any { index ->
+                val option = options[index]
+                if (option == DAR_OPTION) options.getOrNull(index + 1)?.let { it.isNotBlank() && !it.startsWith('-') } == true
+                else option.startsWith("$DAR_OPTION=") && option.substringAfter('=').isNotBlank()
+            }
+            return if (darPath.isBlank() && !hasDarArgument) "Choose a compiled DAR for CLI Run Script." else null
+        }
     }
 }
 

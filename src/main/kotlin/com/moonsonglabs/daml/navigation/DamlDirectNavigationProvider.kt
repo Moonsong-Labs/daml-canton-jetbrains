@@ -17,7 +17,7 @@ class DamlDirectNavigationProvider : DirectNavigationProvider {
 
         val symbol = when {
             type == DamlTokenTypes.OPERATOR && sourceElement.text == "@" ->
-                DamlModuleNames.symbolAfterTypeApplicationMarker(file.text, sourceElement.textRange.startOffset)
+                DamlModuleResolver.referenceAtTypeApplication(file, sourceElement.textRange.startOffset)
             type == DamlTokenTypes.TYPE_NAME ||
                 type == DamlTokenTypes.PRELUDE_TYPE ||
                 type == DamlTokenTypes.IDENTIFIER ->

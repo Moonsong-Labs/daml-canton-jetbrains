@@ -12,10 +12,8 @@ import com.intellij.lang.PsiStructureViewFactory
 import com.intellij.navigation.ItemPresentation
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
-import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiFile
 import com.moonsonglabs.daml.DamlIcons
-import com.moonsonglabs.daml.navigation.DamlModuleNames
 import javax.swing.Icon
 
 class DamlStructureViewFactory : PsiStructureViewFactory {

@@ -18,15 +18,20 @@ class DamlSymbolContributor : ChooseByNameContributorEx {
     override fun processNames(processor: Processor<in String>, scope: GlobalSearchScope, filter: IdFilter?) {
         val project = scope.project ?: return
         if (DumbService.isDumb(project)) return
-        FileBasedIndex.getInstance().processAllKeys(DamlSymbolIndex.NAME, { key ->
+        val sourceScope = DamlUsageScope.restrict(project, scope)
+        val index = FileBasedIndex.getInstance()
+        index.processAllKeys(DamlSymbolIndex.NAME, { key ->
             ProgressManager.checkCanceled()
-            !key.startsWith(DamlSymbolIndex.SYMBOL_PREFIX) || processor.process(key.removePrefix(DamlSymbolIndex.SYMBOL_PREFIX))
-        }, scope, filter)
+            !key.startsWith(DamlSymbolIndex.SYMBOL_PREFIX) ||
+                index.getContainingFiles(DamlSymbolIndex.NAME, key, sourceScope).isEmpty() ||
+                processor.process(key.removePrefix(DamlSymbolIndex.SYMBOL_PREFIX))
+        }, sourceScope, filter)
     }
     override fun processElementsWithName(name: String, processor: Processor<in NavigationItem>, parameters: FindSymbolParameters) {
         val project = parameters.project
         if (DumbService.isDumb(project)) return
-        for (file in FileBasedIndex.getInstance().getContainingFiles(DamlSymbolIndex.NAME, DamlSymbolIndex.SYMBOL_PREFIX + name, parameters.searchScope)) {
+        val scope = DamlUsageScope.restrict(project, parameters.searchScope)
+        for (file in FileBasedIndex.getInstance().getContainingFiles(DamlSymbolIndex.NAME, DamlSymbolIndex.SYMBOL_PREFIX + name, scope)) {
             ProgressManager.checkCanceled()
             val psi = PsiManager.getInstance(project).findFile(file) ?: continue
             for (symbol in DamlSourceModel.get(psi).byName[name].orEmpty()) {

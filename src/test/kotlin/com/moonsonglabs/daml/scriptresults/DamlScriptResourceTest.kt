@@ -60,4 +60,16 @@ second = script do
         assertNull(DamlScriptResource.filePath("daml://compiler?file=%XX"))
         assertNull(DamlScriptResource.filePath("https://example.test/?file=/tmp/Test.daml"))
     }
+
+    @Test
+    fun `parses resource title and source through the same encoded reference`() {
+        val path = "/tmp/Pool + grant & tests/Pruebaé.daml"
+        val name = "testWithApostrophe'"
+        val reference = DamlScriptResource.parse(DamlScriptResource.uri(path, name))!!
+        assertEquals(path, reference.filePath)
+        assertEquals(name, reference.declaration)
+        assertEquals("$name - Pruebaé.daml", reference.title)
+        assertEquals("Main.daml", DamlScriptResource.parse("daml://compiler?file=/tmp/Main.daml")?.title)
+        assertNull(DamlScriptResource.parse("daml://compiler?file=/tmp/Main.daml&top-level-decl=%XX"))
+    }
 }

@@ -9,6 +9,22 @@ class SandboxLedgerExplorerTest {
     private val explorer = SandboxLedgerExplorer()
 
     @Test
+    fun `reassignment direction is preserved for history and in flight rows`() {
+        val source = "source::id"
+        val target = "target::id"
+        val event = """{"source":"$source","target":"$target","contractId":"contract"}"""
+        val history = explorer.parseUpdateEvents("""[{"update":{"Reassignment":{"value":{"offset":7,"events":[
+            {"JsAssignmentEvent":{"value":$event}},{"JsUnassignedEvent":{"value":$event}}
+        ]}}}}]""")
+        assertEquals(listOf(target, source), history.map { it.synchronizerId })
+        val inFlight = explorer.parseInFlightContracts("""[
+            {"contractEntry":{"JsIncompleteAssigned":{"assignedEvent":$event}}},
+            {"contractEntry":{"JsIncompleteUnassigned":{"unassignedEvent":$event}}}
+        ]""")
+        assertEquals(listOf(target, source), inFlight.map { it.synchronizerId })
+    }
+
+    @Test
     fun `active contracts request uses ledger end and event format`() {
         val body = explorer.activeContractsRequestBody(51, listOf("Alice::party", "Bob::party"))
         val json = JsonParser.parseString(body).asJsonObject

@@ -19,6 +19,9 @@ class DamlPackageSources(private val project: Project) {
     fun root(file: VirtualFile?): VirtualFile? = generateSequence(file?.parent) { it.parent }
         .firstOrNull { it.findChild(CONFIG) != null }
 
+    fun containingArchive(file: VirtualFile?): VirtualFile? =
+        if (file?.fileSystem is JarFileSystem) generateSequence(file) { it.parent }.last() else null
+
     fun sourceRoot(root: VirtualFile): VirtualFile? {
         val path = scalar(root.findChild(CONFIG), "source") ?: "daml"
         return root.findFileByRelativePath(path)
@@ -60,6 +63,8 @@ class DamlPackageSources(private val project: Project) {
     }
 
     fun samePackage(candidate: VirtualFile, context: VirtualFile?): Boolean {
+        containingArchive(context)?.let { return containingArchive(candidate) == it }
+        if (containingArchive(candidate) != null) return false
         val owner = root(context)
         val candidateOwner = root(candidate)
         if (owner == null) return candidateOwner == null
@@ -69,7 +74,7 @@ class DamlPackageSources(private val project: Project) {
     }
 
     fun provenance(file: VirtualFile): String {
-        if (file.fileSystem.protocol == "jar") return "Dependency source: ${file.path.substringBefore("!/").substringAfterLast('/')} (read-only)"
+        if (containingArchive(file) != null) return "Dependency source: ${file.path.substringBefore("!/").substringAfterLast('/')} (read-only)"
         val root = root(file) ?: return "Project source"
         val config = root.findChild(CONFIG)
         return listOfNotNull(scalar(config, "name"), scalar(config, "version"), scalar(config, "sdk-version")?.let { "SDK $it" }).joinToString(" · ")

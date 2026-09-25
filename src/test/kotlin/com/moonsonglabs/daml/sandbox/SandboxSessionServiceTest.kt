@@ -10,14 +10,25 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class SandboxSessionServiceTest : BasePlatformTestCase() {
     private class Process : SandboxManagedProcess {
-        @Volatile override var isTerminated = false
+        @Volatile private var terminated = false
+        @Volatile var observeTermination = false
+        val terminationObserved = CountDownLatch(1)
+        override var isTerminated: Boolean
+            get() {
+                if (observeTermination && terminated) terminationObserved.countDown()
+                return terminated
+            }
+            set(value) { terminated = value }
+        var exitOnStart: Int? = null
         var refuseStop = false
         var onText: (String) -> Unit = {}
         var onExit: (Int) -> Unit = {}
         override fun start(onText: (String) -> Unit, onExit: (Int) -> Unit) {
             this.onText = onText; this.onExit = onExit
             onText("=== sandbox ready ===\n")
+            exitOnStart?.let { exit(it); observeTermination = true }
         }
+        fun exit(code: Int) { isTerminated = true; onExit(code) }
         override fun terminate() { if (!refuseStop) isTerminated = true }
         override fun waitFor(timeoutMs: Long) = isTerminated
     }
@@ -58,6 +69,91 @@ class SandboxSessionServiceTest : BasePlatformTestCase() {
             assertTrue(processes.isEmpty())
             assertFalse(service.snapshot().ownsProcess)
         } finally { released.countDown(); service.dispose() }
+    }
+
+    fun `test synchronous process exit cannot be overwritten by starting state`() {
+        val processes = mutableListOf<Process>()
+        val service = service(processes)
+        val process = Process().apply { exitOnStart = 1 }
+        try {
+            service.runtimeOperations = service.runtimeOperations.copy(launch = { process })
+            service.startLocal(SandboxDefaults.newProfile(null))
+            assertTrue(process.terminationObserved.await(5, TimeUnit.SECONDS))
+            assertEquals(SandboxSessionStatus.FAILED, service.snapshot().status)
+            assertEquals("Process exited with code 1", service.snapshot().message)
+            assertFalse(service.snapshot().ownsProcess)
+        } finally { service.dispose() }
+    }
+
+    fun `test exit during ready probe preserves failure`() = assertExitDuringProbe(ready = true, exitCode = 1)
+
+    fun `test exit during nonready probe preserves stopped state`() = assertExitDuringProbe(ready = false, exitCode = 0)
+
+    private fun assertExitDuringProbe(ready: Boolean, exitCode: Int) {
+        val processes = mutableListOf<Process>()
+        val service = service(processes)
+        val entered = CountDownLatch(1)
+        val released = CountDownLatch(1)
+        val expected = if (exitCode == 0) SandboxSessionStatus.STOPPED else SandboxSessionStatus.FAILED
+        try {
+            service.runtimeOperations = service.runtimeOperations.copy(probe = { profile, _ ->
+                entered.countDown()
+                assertTrue(released.await(5, TimeUnit.SECONDS))
+                EndpointBuilder.participantEndpoints(profile).filter { it.kind == "json" }
+                    .map { HealthSnapshot(it, ready, ready, "probe completed") }
+            })
+            service.startLocal(SandboxDefaults.newProfile(null))
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val process = processes.single()
+            process.exit(exitCode)
+            process.observeTermination = true
+            released.countDown()
+            assertTrue(process.terminationObserved.await(5, TimeUnit.SECONDS))
+            assertEquals(expected, service.snapshot().status)
+            assertEquals("Process exited with code $exitCode", service.snapshot().message)
+            assertFalse(service.snapshot().ownsProcess)
+        } finally { released.countDown(); service.dispose() }
+    }
+
+    fun `test disposal during launch terminates the process returned afterwards`() {
+        val processes = mutableListOf<Process>()
+        val service = service(processes)
+        val process = Process()
+        val entered = CountDownLatch(1)
+        val released = CountDownLatch(1)
+        try {
+            service.runtimeOperations = service.runtimeOperations.copy(launch = {
+                entered.countDown()
+                // OS creation may finish after interruption, so force that ordering here.
+                while (released.count > 0) {
+                    try { released.await() } catch (_: InterruptedException) { }
+                }
+                process
+            })
+            service.startLocal(SandboxDefaults.newProfile(null))
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            service.dispose()
+            released.countDown()
+            await { process.isTerminated }
+            assertFalse(service.snapshot().ownsProcess)
+        } finally { released.countDown(); service.dispose() }
+    }
+
+    fun `test disposal terminates owned process and ignores later callbacks`() {
+        val processes = mutableListOf<Process>()
+        val service = service(processes)
+        try {
+            service.startLocal(SandboxDefaults.newProfile(null))
+            await { service.snapshot().status == SandboxSessionStatus.RUNNING }
+            val process = processes.single()
+            service.dispose()
+            val disposedState = service.snapshot()
+            process.onText("late output after disposal")
+            process.onExit(1)
+            assertTrue(process.isTerminated)
+            assertFalse(disposedState.ownsProcess)
+            assertEquals(disposedState, service.snapshot())
+        } finally { service.dispose() }
     }
 
     fun `test late callbacks after restart cannot change new runtime or logs`() {

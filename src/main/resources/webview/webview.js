@@ -97,15 +97,20 @@ function setHtmlContent(html) {
   state.progressMs = -1;
   state.originalHtml = String(html == null ? '' : html);
   state.notes = [];
+  if (!state.originalHtml) {
+    state.expandedEvents.clear();
+    state.collapsedTransactions.clear();
+    state.collapsedBranches.clear();
+  }
   const fragment = sanitizeToFragment(state.originalHtml);
   state.sanitizedHtml = fragmentToHtml(fragment.cloneNode(true));
   state.model = buildModelFromFragment(fragment.cloneNode(true));
   state.parserWarnings = state.model.warnings.slice();
-  if (!state.model.contracts.some(c => c.id === state.selectedContractId) && state.model.contracts.length > 0) {
-    state.selectedContractId = state.model.contracts[0].id;
+  if (!state.model.contracts.some(c => c.id === state.selectedContractId)) {
+    state.selectedContractId = state.model.contracts[0]?.id || null;
   }
-  if (!state.model.transactions.some(tx => tx.id === state.selectedTransactionId) && state.model.transactions.length > 0) {
-    state.selectedTransactionId = state.model.transactions[0].id;
+  if (!state.model.transactions.some(tx => tx.id === state.selectedTransactionId)) {
+    state.selectedTransactionId = state.model.transactions[0]?.id || null;
   }
   render();
 }
@@ -1092,46 +1097,8 @@ function txDetail(tx) {
   return group;
 }
 
-function txSummary(tx) {
-  const sourceEvents = tx.events.length ? tx.events : (tx.rawText ? [rawTransactionEvent(tx.id, tx.rawText)] : []);
-  const events = flattenEvents(sourceEvents);
-  const parties = transactionParties(events);
-  const primaryEvent = primaryTransactionEvent(events);
-  return el('section', { className: 'tx-summary-stack' }, [
-    txActionCard(primaryEvent, parties)
-  ]);
-}
-
 function primaryTransactionEvent(events) {
   return (events || []).find(event => event && String(event.kind || '') !== 'Raw') || (events || [])[0] || null;
-}
-
-function transactionParties(events) {
-  return uniqueParties((events || []).flatMap(event => (event.parties || []).concat(event.actors || [])));
-}
-
-function txActionCard(event, parties) {
-  if (!event) return emptyState('No transaction action was parsed.');
-  const actor = eventPrimaryActors(event)[0] || null;
-  const visibleParties = (parties || []).slice(0, 2);
-  return el('section', { className: 'tx-action-card' }, [
-    el('div', { className: 'tx-action-copy' }, [
-      el('div', { className: 'muted tx-action-label' }, 'Transaction action'),
-      el('div', { className: 'tx-action-sentence' }, [
-        eventBadge(event.kind),
-        actor ? compactPartyChip(actor) : null,
-        transactionVerb(event.kind) ? txWord(transactionVerb(event.kind), 'tx-keyword tx-keyword-' + eventKindCss(event.kind)) : null,
-        txTemplateChip(event.template || event.label || event.kind),
-        event.contractId ? txContractButton(event.contractId, shortId(event.contractId)) : null,
-        el('span', { className: 'muted' }, eventActionNote(event))
-      ])
-    ]),
-    visibleParties.length ? el('div', { className: 'tx-primary-parties' }, [
-      el('span', { className: 'muted tx-primary-parties-label' }, 'Primary parties'),
-      visibleParties.map(party => compactPartyChip(party)),
-      parties.length > visibleParties.length ? el('span', { className: 'muted' }, '+' + (parties.length - visibleParties.length)) : null
-    ]) : null
-  ]);
 }
 
 function eventPreviewTitle(event) {
@@ -1198,65 +1165,6 @@ function eventNodeAt(event, indexLabel, transactionId) {
   ]);
 }
 
-function eventHeadline(event) {
-  const kind = String(event.kind || 'Event');
-  const actors = eventPrimaryActors(event).map(party => party.name || party).filter(Boolean);
-  const parts = [];
-  if (actors.length) {
-    actors.slice(0, 2).forEach((party, index) => {
-      if (index > 0) parts.push(txWord('and', 'tx-keyword'));
-      parts.push(txParty(party));
-    });
-    if (actors.length > 2) parts.push(txWord('+' + (actors.length - 2), 'tx-muted-token'));
-  }
-
-  const verb = transactionVerb(kind);
-  if (verb) parts.push(txWord(verb, 'tx-keyword tx-keyword-' + eventKindCss(kind)));
-
-  if (kind === 'Exercise') {
-    parts.push(txWord(event.label || 'choice', 'tx-choice'));
-    if (event.contractId) parts.push(txWord('on', 'tx-keyword'));
-    if (event.template) parts.push(txWord(templateShortName(event.template), 'tx-template'));
-  } else if (kind === 'Create') {
-    parts.push(txWord(templateShortName(event.template || event.label), 'tx-template'));
-  } else if (kind === 'Fetch' || kind === 'Archive' || kind === 'Archived/Result') {
-    if (event.template || event.label) parts.push(txWord(templateShortName(event.template || event.label), 'tx-template'));
-  } else {
-    parts.push(txWord(event.label || kind, 'tx-template'));
-  }
-
-  return el('span', { className: 'tx-event-title' }, parts.length ? parts : [document.createTextNode(event.label || kind)]);
-}
-
-function eventSummaryRoles(event) {
-  const groups = [];
-  const kind = String(event.kind || '');
-  if (kind === 'Create') {
-    groups.push(eventRoleGroup(ROLE.SIGNATORY, partiesWithRole(event.parties, ROLE.SIGNATORY)));
-    groups.push(eventRoleGroup(ROLE.OBSERVER, partiesWithRole(event.parties, ROLE.OBSERVER)));
-  } else if (kind === 'Exercise') {
-    const controllers = normalizePartyObjects(event.actors, ROLE.CONTROLLER)
-      .concat(partiesWithRole(event.parties, ROLE.CONTROLLER));
-    groups.push(eventRoleGroup(ROLE.CONTROLLER, uniqueParties(controllers)));
-  } else {
-    groups.push(eventRoleGroup(ROLE.WITNESS, partiesWithRole(event.parties, ROLE.WITNESS)));
-  }
-  const visibleGroups = groups.filter(Boolean);
-  if (!visibleGroups.length) return null;
-  return el('span', { className: 'tx-event-meta' }, visibleGroups);
-}
-
-function eventRoleGroup(role, parties) {
-  const unique = uniqueParties(parties || []);
-  if (!unique.length) return null;
-  const shown = unique.slice(0, 3);
-  return el('span', { className: 'tx-role-group tx-role-group-' + roleCssClass(role) }, [
-    el('span', { className: 'tx-role-label ' + roleCssClass(role) }, role),
-    shown.map(party => partyChip(Object.assign({}, party, { roles: [role] }), null, false)),
-    unique.length > shown.length ? el('span', { className: 'tx-muted-token' }, '+' + (unique.length - shown.length)) : null
-  ]);
-}
-
 function eventDetailSummary(event) {
   const rows = decodedEventRows(event);
   const roleRows = eventRoleRows(event);
@@ -1285,15 +1193,6 @@ function eventDetailSummary(event) {
 function addDetailRow(rows, label, value) {
   if (!value) return;
   rows.push({ label, value });
-}
-
-function addPartyDetailRow(rows, label, parties) {
-  const unique = uniqueParties(parties || []);
-  if (!unique.length) return;
-  rows.push({
-    label,
-    value: el('span', { className: 'chip-row compact' }, unique.map(party => partyChip(party)))
-  });
 }
 
 function decodedEventRows(event) {
@@ -1359,44 +1258,6 @@ function eventPartySummary(parties) {
 
 function txRoleBadge(role) {
   return el('span', { className: 'tx-role-label ' + roleCssClass(role), title: roleDescription(role) }, role);
-}
-
-function eventRowTitle(event) {
-  const kind = String(event.kind || '');
-  if (kind === 'Exercise') {
-    const title = event.label || 'choice';
-    return event.template ? [txWord(title, 'tx-choice'), txWord('on', 'tx-muted-token'), txTemplateChip(event.template)] : [txWord(title, 'tx-choice')];
-  }
-  return txTemplateChip(event.template || event.label || kind || 'Event');
-}
-
-function eventRowActor(event) {
-  const actor = eventPrimaryActors(event)[0] || null;
-  if (!actor) return null;
-  return el('span', { className: 'tx-event-actor' }, [
-    el('span', { className: 'muted' }, eventRowActorVerb(event.kind)),
-    compactPartyChip(actor)
-  ]);
-}
-
-function eventRowActorVerb(kind) {
-  const value = String(kind || '').toLowerCase();
-  if (value.includes('create')) return 'created by';
-  if (value.includes('exercise')) return 'exercised by';
-  if (value.includes('fetch')) return 'fetched by';
-  if (value.includes('archive')) return 'archived by';
-  if (value.includes('lookup')) return 'looked up by';
-  return 'by';
-}
-
-function eventActionNote(event) {
-  const value = String(event && event.kind || '').toLowerCase();
-  if (value.includes('create')) return 'created contract';
-  if (value.includes('exercise')) return 'choice exercise';
-  if (value.includes('fetch')) return 'contract fetch';
-  if (value.includes('archive')) return 'archived contract';
-  if (value.includes('lookup')) return 'contract lookup';
-  return 'decoded event';
 }
 
 function txTemplateChip(value) {
@@ -1467,10 +1328,6 @@ function uniqueParties(parties) {
     map.set(name, existing);
   }
   return Array.from(map.values());
-}
-
-function txParty(name) {
-  return el('span', { className: 'tx-party party-' + stableColorIndex(name), title: 'Party ' + name }, name);
 }
 
 function txWord(text, className) {
@@ -1632,14 +1489,6 @@ function fieldTable(fields) {
       ])
     ])))
   ]);
-}
-
-function compactFieldGrid(fields) {
-  if (!fields || !fields.length) return emptyState('No fields found in DPM output.');
-  return el('dl', { className: 'compact-field-grid' }, fields.flatMap(field => [
-    el('dt', {}, field.name),
-    el('dd', { className: 'mono wrap' }, shortValue(field.value))
-  ]));
 }
 
 function referenceValue(value) {
@@ -2072,10 +1921,6 @@ function valueAt(values, index) {
 
 function cleanText(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
-}
-
-function textOf(node) {
-  return cleanText(node && node.textContent);
 }
 
 function shortId(id) {

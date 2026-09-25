@@ -82,13 +82,21 @@ class DamlModuleResolver(private val project: Project) {
         val psi = PsiManager.getInstance(project).findFile(file) ?: return null
         ResolvedModule(moduleName, file, DamlSourceModel.get(psi).moduleStart?.let(psi::findElementAt) ?: psi)
     }
-    fun moduleNames(): List<String> = if (DumbService.isDumb(project)) emptyList() else
-        FileBasedIndex.getInstance().getAllKeys(DamlSymbolIndex.NAME, project).filter { it.startsWith(DamlSymbolIndex.MODULE_PREFIX) }.map { it.removePrefix(DamlSymbolIndex.MODULE_PREFIX) }.sorted()
+    fun moduleNames(): List<String> {
+        if (DumbService.isDumb(project)) return emptyList()
+        val index = FileBasedIndex.getInstance()
+        val scope = DamlUsageScope.restrict(project, GlobalSearchScope.projectScope(project))
+        return index.getAllKeys(DamlSymbolIndex.NAME, project).filter { key ->
+            key.startsWith(DamlSymbolIndex.MODULE_PREFIX) && index.getContainingFiles(DamlSymbolIndex.NAME, key, scope).isNotEmpty()
+        }.map { it.removePrefix(DamlSymbolIndex.MODULE_PREFIX) }.sorted()
+    }
 
     private fun moduleFiles(module: String, context: VirtualFile?): List<VirtualFile> {
         ProgressManager.checkCanceled()
+        packages.containingArchive(context)?.let { return packages.modulesInArchive(it, module) }
         val own = if (DumbService.isDumb(project)) emptyList() else FileBasedIndex.getInstance()
-            .getContainingFiles(DamlSymbolIndex.NAME, DamlSymbolIndex.MODULE_PREFIX + module, GlobalSearchScope.projectScope(project))
+            .getContainingFiles(DamlSymbolIndex.NAME, DamlSymbolIndex.MODULE_PREFIX + module,
+                DamlUsageScope.restrict(project, GlobalSearchScope.projectScope(project)))
             .filter { packages.samePackage(it, context) }
         if (own.isNotEmpty()) return own
         // DAR sources keep their immutable archive identity, including the selected package version.
@@ -98,6 +106,15 @@ class DamlModuleResolver(private val project: Project) {
         private val TYPE_KINDS = setOf(DamlSourceModel.Kind.DATA, DamlSourceModel.Kind.NEWTYPE, DamlSourceModel.Kind.TYPE,
             DamlSourceModel.Kind.TEMPLATE, DamlSourceModel.Kind.INTERFACE, DamlSourceModel.Kind.CLASS, DamlSourceModel.Kind.TYPE_PARAMETER)
         fun getInstance(project: Project): DamlModuleResolver = project.service()
+        fun referenceAtTypeApplication(file: PsiFile, offset: Int): DamlModuleNames.SymbolReference? {
+            val text = DamlSourceModel.get(file).text
+            var actual = offset
+            if (text.getOrNull(actual) == '@') {
+                actual++
+                while (text.getOrNull(actual)?.isWhitespace() == true) actual++
+            }
+            return referenceAt(file, actual)
+        }
         fun referenceAt(file: PsiFile, offset: Int): DamlModuleNames.SymbolReference? {
             val model = DamlSourceModel.get(file)
             val token = model.tokenAt(offset)?.takeIf { it.code && DamlSourceModel.isName(it.text) } ?: return null

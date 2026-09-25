@@ -63,6 +63,40 @@ class DamlFunctionHighlightingTest : BasePlatformTestCase() {
         assertFunctionCalls("withdrawal")
     }
 
+    fun testLocalMultilineFunctionSignatureAndContainerOfFunctions() {
+        configure("""
+            identity :
+              Int -> Int
+            identity = \value -> value
+            callbacks :
+              [Int -> Int]
+            callbacks = []
+            direct = identity 1
+            container = callbacks
+        """)
+        assertFunctionCalls("identity")
+    }
+
+    fun testImportedMultilineFunctionSignatureAndContainerOfFunctions() {
+        myFixture.addFileToProject("Multiline.daml", """
+            module Multiline where
+            identity :
+              Int -> Int
+            identity = \value -> value
+            callbacks :
+              [Int -> Int]
+            callbacks = []
+        """.trimIndent())
+        configure("""
+            import qualified Multiline as M
+            import Multiline (identity, callbacks)
+            direct = identity 1
+            qualifiedCall = M.identity 2
+            container = callbacks
+        """)
+        assertFunctionCalls("identity", "identity")
+    }
+
     fun testAmbiguousImportIsNotColoredAsAFunction() {
         myFixture.addFileToProject("Other.daml", "module Other where\nwithdrawal = 1\n")
         configure("""

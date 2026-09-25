@@ -116,6 +116,21 @@ class DamlSourceModel private constructor(val text: String) {
     fun declaration(offset: Int) = declarationOffsets[offset]
     fun lineAt(offset: Int): Line = lines[(tokenAt(offset)?.line ?: text.take(offset).count { it == '\n' }).coerceIn(lines.indices)]
     fun owner(symbol: Symbol) = symbol.owner?.let(symbolsByOffset::get)
+    fun explicitTypeTokens(declarationOffset: Int): List<Token> {
+        val header = lineAt(declarationOffset)
+        val colon = header.tokens.takeWhile { it.text != "=" }
+            .firstOrNull { it.start > declarationOffset && it.text == ":" } ?: return emptyList()
+        val signature = header.tokens.filter { it.start > colon.start }.toMutableList()
+        val lineIndex = tokenAt(declarationOffset)?.line ?: return emptyList()
+        for (index in lineIndex + 1 until lines.size) {
+            val line = lines[index]
+            if (line.tokens.isEmpty()) continue
+            if (line.indent <= header.indent || line.tokens.first().text in TYPE_STOPS ||
+                line.tokens.any { it.text in setOf("=", ":", "<-") }) break
+            signature += line.tokens
+        }
+        return signature.takeWhile { it.text !in TYPE_STOPS }
+    }
     fun exported(symbol: Symbol): Boolean = symbol.kind !in PRIVATE_KINDS &&
         owner(symbol)?.kind !in setOf(Kind.FUNCTION, Kind.VALUE, Kind.METHOD, Kind.LOCAL, Kind.INSTANCE) &&
         (exports == null || symbol.name in exports || owner(symbol)?.name in exportMembers)
@@ -227,7 +242,8 @@ class DamlSourceModel private constructor(val text: String) {
                 val symbol = add(name, kind, index, owner, signature,
                     if (kind == Kind.LOCAL) (if (sep.text == "<-") lineEnds[index] else name.end) else null, scopeEnd,
                     signature?.matches(PARTY_TYPE) == true || ts.getOrNull(separator + 1)?.text?.startsWith("allocateParty") == true)
-                if (sep.text == "=" && kind in setOf(Kind.FUNCTION, Kind.VALUE, Kind.METHOD)) {
+                val localFunction = kind == Kind.LOCAL && separator > startIndex + 1
+                if (sep.text == "=" && (kind in setOf(Kind.FUNCTION, Kind.VALUE, Kind.METHOD) || localFunction)) {
                     ts.subList(startIndex + 1, separator).filter { isLowerName(it.text) && it.text !in RESERVED }
                         .forEach { add(it, Kind.PARAMETER, index, symbol, scopeStart = sep.end, scopeEnd = lineEnds[index]) }
                     // The definition owns its body even when its signature is the canonical symbol.
@@ -260,6 +276,7 @@ class DamlSourceModel private constructor(val text: String) {
         val PRIVATE_KINDS = setOf(Kind.PARAMETER, Kind.LOCAL, Kind.TYPE_PARAMETER, Kind.INSTANCE)
         private val RESERVED = DamlKeywords.haskellKeywords + setOf("signatory", "observer", "controller", "ensure", "maintainer", "choice", "with", "viewtype")
         private val PARTY_TYPE = Regex("(?:Optional\\s+|List\\s+)?Party")
+        private val TYPE_STOPS = setOf("with", "where", "controller", "do", "signatory", "observer", "ensure")
         private val TYPE_KINDS = mapOf("template" to Kind.TEMPLATE, "interface" to Kind.INTERFACE, "data" to Kind.DATA,
             "newtype" to Kind.NEWTYPE, "type" to Kind.TYPE, "class" to Kind.CLASS, "exception" to Kind.EXCEPTION)
         fun isName(value: String) = value.isNotEmpty() && (value[0].isLetter() || value[0] == '_') && value.all { it.isLetterOrDigit() || it == '_' || it == '\'' }

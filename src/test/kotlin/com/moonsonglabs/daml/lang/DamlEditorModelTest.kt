@@ -71,6 +71,27 @@ class DamlEditorModelTest : BasePlatformTestCase() {
         assertTrue(file.text.contains("first value = value + 1"))
         assertTrue(file.text.contains("second x = x + 2"))
     }
+    fun testLocalFunctionParameterShadowsOuterParameterAndRenamesIndependently() {
+        val text = "module Main where\nmain x = do\n  let helper x = x + 1\n  pure (helper x)\n"
+        val file = myFixture.configureByText(DamlFileType, text)
+        val model = DamlSourceModel.get(file)
+        val innerParameter = text.indexOf("x =", text.indexOf("helper"))
+        assertEquals(innerParameter, model.local("x", text.indexOf("x +"))?.start)
+        assertEquals(text.indexOf("x ="), model.local("x", text.lastIndexOf("x"))?.start)
+        val outer = DamlNamedElement.at(file, text.indexOf("x ="))!!
+        RenameProcessor(project, outer, "outer", false, false).run()
+        assertEquals("module Main where\nmain outer = do\n  let helper x = x + 1\n  pure (helper outer)\n", file.text)
+        val inner = DamlNamedElement.at(file, file.text.indexOf("x ="))!!
+        RenameProcessor(project, inner, "inner", false, false).run()
+        assertEquals("module Main where\nmain outer = do\n  let helper inner = inner + 1\n  pure (helper outer)\n", file.text)
+    }
+
+    fun testLocalFunctionParametersOwnMultilineBodyAndEndBeforeNextStatement() {
+        val text = "module Main where\nmain = do\n  let helper argument =\n        argument + 1\n  pure argument\n"
+        val model = DamlSourceModel.parse(text)
+        assertEquals(text.indexOf("argument"), model.local("argument", text.indexOf("argument +"))?.start)
+        assertNull(model.local("argument", text.lastIndexOf("argument")))
+    }
     fun testCommentsChoiceArgumentsAndStatementBoundaries() {
         val text = "module Main where\n{- choice Fake : () -}\nmain = do\n  exerciseCmd cid (Accept with owner = alice)\n  exerciseCmd cid $ Accept with owner = alice\n  pure Reject\n"
         assertEmpty(DamlChoiceNames.declarations(text))

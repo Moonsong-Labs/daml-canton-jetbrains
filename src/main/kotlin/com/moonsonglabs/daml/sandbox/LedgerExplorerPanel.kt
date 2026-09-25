@@ -4,7 +4,6 @@ import com.intellij.icons.AllIcons
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.UIUtil
-import com.intellij.openapi.ui.Messages
 import javax.swing.JSplitPane
 import javax.swing.JCheckBox
 import javax.swing.JToggleButton
@@ -15,7 +14,6 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
@@ -51,10 +49,7 @@ import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JList
-import javax.swing.JMenuItem
 import javax.swing.JPanel
-import javax.swing.JPopupMenu
-import javax.swing.JScrollBar
 import javax.swing.JScrollPane
 import javax.swing.Scrollable
 import javax.swing.JTable
@@ -62,10 +57,8 @@ import javax.swing.ListSelectionModel
 import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
 import javax.swing.border.AbstractBorder
-import javax.swing.plaf.basic.BasicScrollBarUI
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.DefaultTableModel
-import javax.swing.table.TableCellRenderer
 import kotlin.math.max
 import kotlin.math.min
 
@@ -115,14 +108,14 @@ internal data class ExplorerFilterState(
     val query: String = "",
     val syncDomains: Set<String> = emptySet(),
     val parties: Set<String> = emptySet(),
-    val kinds: Set<String> = setOf("Active", "Created", "Archived")
+    val kinds: Set<String> = setOf(LedgerActivityKind.ACTIVE, LedgerActivityKind.CREATED, LedgerActivityKind.ARCHIVED)
 )
 
 internal object LedgerExplorerRows {
     fun from(snapshot: LedgerExplorerSnapshot): List<ExplorerActivityRow> {
         val active = snapshot.activeContracts.map {
             ExplorerActivityRow(
-                kind = "Active",
+                kind = LedgerActivityKind.ACTIVE,
                 templateId = it.templateId,
                 templateName = it.templateName,
                 contractId = it.contractId,
@@ -211,11 +204,14 @@ class LedgerExplorerPanel(
     private val sessions: SandboxSessionService = SandboxSessionService.getInstance(project),
     private val profiles: SandboxProfileService = SandboxProfileService.getInstance(project),
     private val navigation: SandboxExplorerNavigationService = SandboxExplorerNavigationService.getInstance(project),
-    private val pulseFlow: () -> Unit = {}
+    private val backgroundExecutor: (() -> Unit) -> Unit = { ApplicationManager.getApplication().executeOnPooledThread(it) },
+    private val snapshotLoader: (SandboxProfile, String, Set<String>?) -> LedgerExplorerSnapshot = { profile, participant, parties ->
+        sessions.fetchLedgerSnapshot(profile, participant, "", parties)
+    }
 ) : JPanel(BorderLayout(10, 10)), Disposable {
     private val statusPill = ExplorerPill("Stopped", ExplorerTheme.archived, filled = false)
     private val profileComboModel = DefaultComboBoxModel<SandboxProfile>()
-    private val profileCombo = ProfileComboBox(profileComboModel) { deleteProfile(it) }
+    private val profileCombo = ProfileComboBox(profileComboModel)
     private val participantSelector = ExplorerStringSelector(ExplorerTheme.participant)
     private val offsetPill = ExplorerPill("Offset -", ExplorerTheme.border, filled = false)
     private val searchField = JBTextField()
@@ -225,11 +221,10 @@ class LedgerExplorerPanel(
     private val syncList = JBList(syncModel)
     private val partyModel = DefaultListModel<String>()
     private val partyList = JBList(partyModel)
-    private val activeSwitch = ExplorerSwitch("Active", "◷", true)
-    private val archivedSwitch = ExplorerSwitch("Archived", "▣", true)
-    private val eventsSwitch = ExplorerSwitch("Created", "ϟ", true)
+    private val archivedSwitch = ExplorerSwitch(LedgerActivityKind.ARCHIVED, "▣", true)
+    private val eventsSwitch = ExplorerSwitch(LedgerActivityKind.CREATED, "ϟ", true)
     private val messageLabel = JBLabel("Sandbox not running")
-    private val segmentTabs = ExplorerSegmentTabs(listOf("Active", "History"))
+    private val segmentTabs = ExplorerSegmentTabs(listOf(LedgerActivityKind.ACTIVE, HISTORY_SEGMENT))
     private val activityModel = tableModel("Type", "Template", "Contract", "Sync Domain", "Parties", "Offset")
     private val activityTable = ActivityTable(activityModel)
     private val detailsArea = JBTextArea().apply {
@@ -241,7 +236,6 @@ class LedgerExplorerPanel(
         background = ExplorerTheme.card
         border = JBUI.Borders.empty(2)
     }
-    private val rawCode = ExplorerCodeBlock()
     private val rawArea = JBTextArea().apply {
         isEditable = false
         lineWrap = false
@@ -252,7 +246,6 @@ class LedgerExplorerPanel(
     }
     private val selectedStatusPill = ExplorerPill("No selection", ExplorerTheme.border, filled = false)
     private val timeline = NetworkActivityTimelinePanel()
-    private val copyButton = iconButton("Copy", AllIcons.Actions.Copy) { copySelectedRaw() }
     private val sidebarSlot = JPanel(BorderLayout()).apply {
         isOpaque = false
     }
@@ -274,7 +267,7 @@ class LedgerExplorerPanel(
     private var allRows: List<ExplorerActivityRow> = emptyList()
     private var visibleRows: List<ExplorerActivityRow> = emptyList()
     private var selectedRow: ExplorerActivityRow? = null
-    private var selectedSegment = "Active"
+    private var selectedSegment = LedgerActivityKind.ACTIVE
     private var updatingProfile = false
     private var updatingFilters = false
     private var sidebarExpanded = false
@@ -307,7 +300,7 @@ class LedgerExplorerPanel(
         if (!changed && profile?.runtimeDefinition() == next.runtimeDefinition()) {
             profile = next
             profileCombo.repaint()
-            refreshButton.isEnabled = session.canQuery(next) && !loading
+            updateRefreshControls()
             return
         }
         refreshSequence++; loading = false
@@ -342,6 +335,7 @@ class LedgerExplorerPanel(
             selectedRow = null
             offsetPill.setStatus("Offset -", ExplorerTheme.border, false)
         }
+        updateRefreshControls()
         applyFilters()
         pendingNavigation?.takeIf { it.profileId == next.id }?.let { request ->
             pendingNavigation = null
@@ -355,11 +349,11 @@ class LedgerExplorerPanel(
             refreshSequence++; currentSnapshot = null; allRows = emptyList(); selectedRow = null
             applyFilters()
         }
-        refreshButton.isEnabled = profile?.let(next::canQuery) == true && !loading
         val current = profile
         val belongs = current == null || next.profileId.isBlank() || next.profileId == current.id
         session = next
         current?.let { setProfile(profiles.selectedProfile()) }
+        updateRefreshControls()
         val visibleStatus = if (belongs) next.status else SandboxSessionStatus.STOPPED
         val color = when (visibleStatus) {
             SandboxSessionStatus.RUNNING -> ExplorerTheme.active
@@ -376,22 +370,21 @@ class LedgerExplorerPanel(
     internal fun refresh() {
         val current = profile ?: return
         if (!session.canQuery(current) || loading) { messageLabel.text = "Start this profile before refreshing."; return }
-        loading = true; refreshButton.isEnabled = false; loadMore.isEnabled = false
         val participantName = participantList.selectedValue ?: current.participants.firstOrNull()?.name ?: return
+        loading = true
+        updateRefreshControls()
         val profileId = current.id
-        val token = ""
         val requestId = ++refreshSequence
         messageLabel.text = "Refreshing $participantName ledger data..."
         val parties = queryParties?.toSet()
-        pulseFlow()
-        ApplicationManager.getApplication().executeOnPooledThread {
-            val result = runCatching { sessions.fetchLedgerSnapshot(current, participantName, token, parties) }
+        backgroundExecutor {
+            val result = runCatching { snapshotLoader(current, participantName, parties) }
             SwingUtilities.invokeLater {
                 if (requestId != refreshSequence || profile?.id != profileId || participantList.selectedValue != participantName) {
                     return@invokeLater
                 }
-                loading = false; refreshButton.isEnabled = true; loadMore.isEnabled = true
-                pulseFlow()
+                loading = false
+                updateRefreshControls()
                 result.fold(::renderSnapshot) { renderError(participantName, it) }
             }
         }
@@ -399,6 +392,7 @@ class LedgerExplorerPanel(
 
     internal fun applyFilters() {
         if (updatingFilters) return
+        listOf(archivedSwitch, eventsSwitch).forEach { it.isVisible = selectedSegment == HISTORY_SEGMENT }
         val state = ExplorerFilterState(
             query = searchField.text,
             syncDomains = syncList.selectedValuesList.toSet(),
@@ -429,17 +423,11 @@ class LedgerExplorerPanel(
                         "Sandbox not running. Start this profile in Network, then refresh."
                     currentSnapshot == null -> "Refresh ledger data for $participant."
                     allRows.any { it.kind in state.kinds } -> "No results match your filters. Clear search or adjust filters."
-                    selectedSegment == "Active" -> "No active contracts for $participant at offset $offset."
-                    selectedSegment == "Archived" -> "No archived contracts for $participant at offset $offset."
-                    selectedSegment == "History" -> "No ledger history for $participant at offset $offset."
+                    selectedSegment == LedgerActivityKind.ACTIVE -> "No active contracts for $participant at offset $offset."
+                    selectedSegment == HISTORY_SEGMENT -> "No ledger history for $participant at offset $offset."
                     else -> "No visible contracts for $participant at offset $offset."
                 }
             )
-        } else if (selectedSegment == "Raw") {
-            selectedRow = null
-            activityTable.clearSelection()
-            timeline.setRows(visibleRows, null)
-            showSnapshotRaw()
         } else {
             val selectedIndex = visibleRows.indexOfFirst { it.contractId == previousSelection?.contractId && it.kind == previousSelection?.kind }
                 .takeIf { it >= 0 }
@@ -451,21 +439,13 @@ class LedgerExplorerPanel(
         activityTable.repaint()
     }
 
-    private fun selectedKinds(): Set<String> {
-        val enabled = buildSet {
-            if (activeSwitch.selected) add("Active")
-            if (eventsSwitch.selected) add("Created")
-            if (archivedSwitch.selected) add("Archived")
-        }
-        return when (selectedSegment) {
-            "Active" -> setOf("Active")
-            "Archived" -> setOf("Archived")
-            "History" -> buildSet {
-                if (eventsSwitch.selected) add("Created")
-                if (archivedSwitch.selected) add("Archived")
-                addAll(listOf("Assigned", "Unassigned", "In-flight assignment", "In-flight unassignment"))
-            }
-            else -> enabled
+    private fun selectedKinds(): Set<String> = when (selectedSegment) {
+        LedgerActivityKind.ACTIVE -> setOf(LedgerActivityKind.ACTIVE)
+        else -> buildSet {
+            if (eventsSwitch.selected) add(LedgerActivityKind.CREATED)
+            if (archivedSwitch.selected) add(LedgerActivityKind.ARCHIVED)
+            addAll(listOf(LedgerActivityKind.ASSIGNED, LedgerActivityKind.UNASSIGNED,
+                LedgerActivityKind.IN_FLIGHT_ASSIGNMENT, LedgerActivityKind.IN_FLIGHT_UNASSIGNMENT))
         }
     }
 
@@ -485,26 +465,19 @@ class LedgerExplorerPanel(
         updatingFilters = true
         try {
             searchField.text = ""
-            activeSwitch.selected = true
             archivedSwitch.selected = true
             eventsSwitch.selected = true
             selectValueOrFirst(participantList, participant.name)
             selectAll(syncList, fire = false)
             selectAll(partyList, fire = false)
-            segmentTabs.select("History", fire = false)
-            selectedSegment = "History"
-            if (currentSnapshot != null && currentSnapshot?.participantName != participant.name) {
-                currentSnapshot = null
-                currentSnapshotProfileId = null
-                allRows = emptyList()
-                selectedRow = null
-                offsetPill.setStatus("Offset -", ExplorerTheme.border, false)
-            }
+            segmentTabs.select(HISTORY_SEGMENT, fire = false)
+            selectedSegment = HISTORY_SEGMENT
             participantSelector.selectValue(participant.name, notify = false)
         } finally {
             updatingFilters = false
         }
         messageLabel.text = "Showing ${participant.name} in Explorer"
+        handleParticipantSelectionChanged()
         applyFilters()
         if (refreshAfterSelect && session.status == SandboxSessionStatus.RUNNING) refresh()
     }
@@ -513,7 +486,7 @@ class LedgerExplorerPanel(
         profileCombo.background = ExplorerTheme.card
         profileCombo.foreground = ExplorerTheme.text
         profileCombo.addActionListener {
-            if (!updatingProfile && !profileCombo.isDeletingProfileFromPopup) {
+            if (!updatingProfile) {
                 (profileCombo.selectedItem as? SandboxProfile)?.let { profiles.selectProfile(it.id) }
             }
         }
@@ -562,8 +535,9 @@ class LedgerExplorerPanel(
         if (selected != null && participantSelector.selectedValue != selected) {
             participantSelector.selectValue(selected, notify = false)
         }
-        if (currentSnapshot != null && currentSnapshot?.participantName != selected) {
-            refreshSequence++; loading = false; queryParties = null
+        invalidateRefresh()
+        queryParties = null
+        if (currentSnapshot?.participantName != selected) {
             currentSnapshot = null
             currentSnapshotProfileId = null
             allRows = emptyList()
@@ -571,6 +545,18 @@ class LedgerExplorerPanel(
             offsetPill.setStatus("Offset -", ExplorerTheme.border, false)
             applyFilters()
         }
+    }
+
+    private fun invalidateRefresh() {
+        refreshSequence++
+        loading = false
+        updateRefreshControls()
+    }
+
+    private fun updateRefreshControls() {
+        val canRefresh = profile?.let(session::canQuery) == true && !loading
+        refreshButton.isEnabled = canRefresh
+        loadMore.isEnabled = canRefresh
     }
 
     private fun configureTable() {
@@ -619,11 +605,11 @@ class LedgerExplorerPanel(
     private fun configureActions() {
         segmentTabs.onSelectionChanged = {
             selectedSegment = it
-            historyCoverage.isVisible = it == "History"
-            loadMore.isVisible = it == "History" && currentSnapshot?.historyComplete == false
+            historyCoverage.isVisible = it == HISTORY_SEGMENT
+            loadMore.isVisible = it == HISTORY_SEGMENT && currentSnapshot?.historyComplete == false
             applyFilters()
         }
-        listOf(activeSwitch, archivedSwitch, eventsSwitch).forEach { it.onChanged = { applyFilters() } }
+        listOf(archivedSwitch, eventsSwitch).forEach { it.onChanged = { applyFilters() } }
         searchField.emptyText.text = "contract, party, template..."
         searchField.toolTipText = "Search contract, party, synchronizer, package, template, or argument"
     }
@@ -660,19 +646,19 @@ class LedgerExplorerPanel(
         detailSplit.apply {
             border = JBUI.Borders.empty(); resizeWeight = 0.65
             leftComponent = activityCard(); rightComponent = detailsSlot
-            dividerLocation = viewPreferences.getInt("daml.explorer.detail.divider", 680)
+            dividerLocation = viewPreferences.getInt(DETAIL_DIVIDER_KEY, 680)
             addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY) {
-                if (detailsSlot.isVisible) viewPreferences.setValue("daml.explorer.detail.divider", dividerLocation, 680)
+                if (detailsSlot.isVisible) viewPreferences.setValue(DETAIL_DIVIDER_KEY, dividerLocation, 680)
             }
         }
         add(JPanel(BorderLayout(6, 0)).apply {
             updateSidebar(); add(sidebarSlot, BorderLayout.WEST); add(detailSplit, BorderLayout.CENTER)
         }, BorderLayout.CENTER)
-        val timelineView = timelineScroll().apply { isVisible = viewPreferences.getBoolean("daml.explorer.timeline", false) }
+        val timelineView = timelineScroll().apply { isVisible = viewPreferences.getBoolean(TIMELINE_KEY, false) }
         timelineToggle.isSelected = timelineView.isVisible
         timelineToggle.addActionListener {
             timelineView.isVisible = timelineToggle.isSelected
-            viewPreferences.setValue("daml.explorer.timeline", timelineToggle.isSelected)
+            viewPreferences.setValue(TIMELINE_KEY, timelineToggle.isSelected)
         }
         add(timelineView, BorderLayout.SOUTH)
         addComponentListener(object : ComponentAdapter() {
@@ -715,10 +701,6 @@ class LedgerExplorerPanel(
                 add(clearFiltersButton(), gbc(y++, 0.0))
                 add(JPanel().apply { isOpaque = false }, gbc(y, 1.0))
             }, BorderLayout.CENTER)
-            add(messageLabel.apply {
-                foreground = ExplorerTheme.mutedText
-                border = JBUI.Borders.empty(4, 0)
-            }, BorderLayout.SOUTH)
         }
 
     private fun collapsedSidebar(): JComponent =
@@ -775,26 +757,11 @@ class LedgerExplorerPanel(
         add(diagnostics, BorderLayout.SOUTH)
     }
 
-    private fun rawPanel(): JComponent =
-        JPanel(BorderLayout(0, 6)).apply {
-            isOpaque = false
-            preferredSize = Dimension(360, 220)
-            add(JPanel(BorderLayout()).apply {
-                isOpaque = false
-                add(JBLabel("Raw (JSON)").apply {
-                    foreground = ExplorerTheme.mutedText
-                    font = font.deriveFont(Font.PLAIN, 12f)
-                }, BorderLayout.WEST)
-                add(copyButton.apply { preferredSize = Dimension(72, 28) }, BorderLayout.EAST)
-            }, BorderLayout.NORTH)
-            add(rawCode, BorderLayout.CENTER)
-        }
-
     private fun switches(): JComponent =
         JPanel(GridBagLayout()).apply {
             isOpaque = false
             border = JBUI.Borders.emptyTop(2)
-            listOf(activeSwitch, archivedSwitch, eventsSwitch).forEachIndexed { index, component ->
+            listOf(archivedSwitch, eventsSwitch).forEachIndexed { index, component ->
                 add(component, GridBagConstraints().apply {
                     gridx = 0
                     gridy = index
@@ -808,12 +775,11 @@ class LedgerExplorerPanel(
     private fun clearFiltersButton(): JComponent =
         iconButton("Clear filters", AllIcons.Actions.GC) {
             searchField.text = ""
-            activeSwitch.selected = true
             archivedSwitch.selected = true
             eventsSwitch.selected = true
             selectAll(syncList)
             selectAll(partyList)
-            segmentTabs.select("Active")
+            segmentTabs.select(LedgerActivityKind.ACTIVE)
             applyFilters()
         }.apply {
             horizontalAlignment = SwingConstants.LEFT
@@ -833,8 +799,8 @@ class LedgerExplorerPanel(
     private fun renderSnapshot(snapshot: LedgerExplorerSnapshot) {
         currentSnapshot = snapshot
         loadMore.isVisible = !snapshot.historyComplete
-        historyCoverage.isVisible = selectedSegment == "History"
-        loadMore.isVisible = selectedSegment == "History" && !snapshot.historyComplete
+        historyCoverage.isVisible = selectedSegment == HISTORY_SEGMENT
+        loadMore.isVisible = selectedSegment == HISTORY_SEGMENT && !snapshot.historyComplete
         historyCoverage.text = "${snapshot.participantName}: history through ${snapshot.historyThrough} of ${snapshot.ledgerEnd}" + if (snapshot.historyComplete) " · Complete" else " · Partial"
         currentSnapshotProfileId = profile?.id
         if (participantList.selectedValue != snapshot.participantName || participantSelector.selectedValue != snapshot.participantName) {
@@ -897,7 +863,7 @@ class LedgerExplorerPanel(
         val route = if (row.syncName == SandboxDefaults.SHARED_SYNCHRONIZER_NAME) "global route" else "private route"
         val partyText = row.parties.joinToString("\n") { "  $it" }.ifBlank { "  -" }
         val args = row.argumentFields.entries.joinToString("\n") { "  ${it.key}: ${it.value}" }.ifBlank { "  -" }
-        selectedStatusPill.setStatus(row.kind, kindColor(row.kind), row.kind == "Active" || row.kind == "Created")
+        selectedStatusPill.setStatus(row.kind, kindColor(row.kind), row.kind == LedgerActivityKind.ACTIVE || row.kind == LedgerActivityKind.CREATED)
         detailsArea.text = buildString {
             appendLine("${row.templateName}")
             appendLine()
@@ -917,7 +883,6 @@ class LedgerExplorerPanel(
         }
         detailsArea.caretPosition = 0
         rawArea.text = row.rawJson.ifBlank { "(no raw JSON for this row)" }
-        rawCode.setText(rawArea.text)
         activityTable.repaint()
     }
 
@@ -938,7 +903,6 @@ class LedgerExplorerPanel(
         detailsArea.text = message
         detailsArea.caretPosition = 0
         rawArea.text = currentSnapshot?.let(::snapshotRawText) ?: ""
-        rawCode.setText(rawArea.text)
     }
 
     private fun showSnapshotRaw() {
@@ -949,7 +913,6 @@ class LedgerExplorerPanel(
         } ?: "No raw ledger response available."
         detailsArea.caretPosition = 0
         rawArea.text = snapshot?.let(::snapshotRawText) ?: ""
-        rawCode.setText(rawArea.text)
     }
 
     private fun snapshotRawText(snapshot: LedgerExplorerSnapshot): String = buildString {
@@ -979,39 +942,13 @@ class LedgerExplorerPanel(
         if (profileComboModel.size > 0) profileCombo.selectedIndex = index
     }
 
-    private fun deleteProfile(profile: SandboxProfile) {
-        val allProfiles = profiles.profiles()
-        if (allProfiles.size <= 1) {
-            messageLabel.text = "Keep at least one sandbox profile"
-            refreshProfileCombo(profile)
-            return
-        }
-
-        val preferredProfileId = this.profile?.id?.takeIf { it != profile.id }
-        if (session.belongsTo(profile) && (session.ownsProcess || session.status == SandboxSessionStatus.STARTING)) {
-            messageLabel.text = "Stop this profile in Network before deleting it."; return
-        }
-        profiles.deleteProfile(profile.id)
-        val nextProfile = preferredProfileId
-            ?.let { id -> profiles.profiles().firstOrNull { it.id == id } }
-            ?: profiles.selectedProfile()
-        profiles.selectProfile(nextProfile.id)
-    }
-
     private fun activityLabel(row: ExplorerActivityRow): String =
         row.kind
 
-    private fun kindIcon(kind: String): String =
-        when (kind) {
-            "Active" -> "▤"
-            "Archived" -> "⊘"
-            else -> "✓"
-        }
-
     private fun kindColor(kind: String): Color =
         when (kind) {
-            "Active" -> ExplorerTheme.created
-            "Archived" -> ExplorerTheme.archived
+            LedgerActivityKind.ACTIVE -> ExplorerTheme.created
+            LedgerActivityKind.ARCHIVED -> ExplorerTheme.archived
             else -> ExplorerTheme.active
         }
 
@@ -1076,6 +1013,12 @@ class LedgerExplorerPanel(
             insets = Insets(3, 0, 3, 0)
         }
 
+    private companion object {
+        const val DETAIL_DIVIDER_KEY = "daml.explorer.detail.divider"
+        const val TIMELINE_KEY = "daml.explorer.timeline"
+        const val HISTORY_SEGMENT = "History"
+    }
+
     override fun dispose() {
         refreshSequence++
         profileListener?.dispose()
@@ -1085,72 +1028,6 @@ class LedgerExplorerPanel(
         sessionListener = null
         navigationListener = null
     }
-}
-
-private fun JBScrollPane.styledScroll(): JBScrollPane =
-    apply {
-        border = BorderFactory.createLineBorder(ExplorerTheme.borderSoft)
-        viewport.background = ExplorerTheme.card
-        horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-        verticalScrollBar.styleExplorerScrollBar()
-        horizontalScrollBar.styleExplorerScrollBar()
-    }
-
-private fun JScrollBar.styleExplorerScrollBar() {
-    isOpaque = false
-    background = ExplorerTheme.card
-    preferredSize = Dimension(9, 9)
-    unitIncrement = 18
-    ui = ExplorerScrollBarUI()
-}
-
-private class ExplorerScrollBarUI : BasicScrollBarUI() {
-    override fun configureScrollBarColors() {
-        thumbColor = ExplorerTheme.border
-        trackColor = ExplorerTheme.card
-    }
-
-    override fun createDecreaseButton(orientation: Int): JButton = zeroButton()
-
-    override fun createIncreaseButton(orientation: Int): JButton = zeroButton()
-
-    override fun paintTrack(g: Graphics, c: JComponent, trackBounds: Rectangle) {
-        val g2 = g.create() as Graphics2D
-        try {
-            g2.color = ExplorerTheme.card
-            g2.fillRect(trackBounds.x, trackBounds.y, trackBounds.width, trackBounds.height)
-        } finally {
-            g2.dispose()
-        }
-    }
-
-    override fun paintThumb(g: Graphics, c: JComponent, thumbBounds: Rectangle) {
-        if (thumbBounds.isEmpty || !scrollbar.isEnabled) return
-        val g2 = g.create() as Graphics2D
-        try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.color = ExplorerTheme.border
-            g2.fillRoundRect(
-                thumbBounds.x + 2,
-                thumbBounds.y + 2,
-                (thumbBounds.width - 4).coerceAtLeast(4),
-                (thumbBounds.height - 4).coerceAtLeast(4),
-                8,
-                8
-            )
-        } finally {
-            g2.dispose()
-        }
-    }
-
-    private fun zeroButton(): JButton =
-        JButton().apply {
-            preferredSize = Dimension(0, 0)
-            minimumSize = Dimension(0, 0)
-            maximumSize = Dimension(0, 0)
-            isOpaque = false
-            border = JBUI.Borders.empty()
-        }
 }
 
 private fun JLabel.styledTitle(): JLabel =
@@ -1283,7 +1160,7 @@ private class ExplorerSegmentTabs(private val values: List<String>) : JPanel(Flo
     var selected: String = values.first()
         private set
     var onSelectionChanged: (String) -> Unit = {}
-    private val buttons = values.associateWith { JToggleButton(if (it == "Active") "Active Contracts" else it) }
+    private val buttons = values.associateWith { JToggleButton(if (it == LedgerActivityKind.ACTIVE) "Active Contracts" else it) }
     init {
         val group = ButtonGroup()
         buttons.forEach { (value, button) -> group.add(button); add(button); button.addActionListener { select(value) } }
@@ -1315,46 +1192,6 @@ private class ActivityTable(model: DefaultTableModel) : JBTable(model) {
     }
 }
 
-private class ActivityCellRenderer : DefaultTableCellRenderer() {
-    override fun getTableCellRendererComponent(
-        table: JTable,
-        value: Any?,
-        isSelected: Boolean,
-        hasFocus: Boolean,
-        row: Int,
-        column: Int
-    ): Component {
-        val label = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column) as JLabel
-        val modelValue = value?.toString().orEmpty()
-        label.isOpaque = true
-        label.border = BorderFactory.createCompoundBorder(
-            if (isSelected) BorderFactory.createMatteBorder(1, column.takeIf { it == 0 }?.let { 3 } ?: 0, 1, 0, ExplorerTheme.activity)
-            else BorderFactory.createMatteBorder(0, column.takeIf { it == 0 }?.let { 3 } ?: 0, 0, 0, Color(0, 0, 0, 0)),
-            JBUI.Borders.empty(0, 10)
-        )
-        label.background = if (isSelected) Color(0x142846) else if (row % 2 == 0) ExplorerTheme.tableRow else ExplorerTheme.tableRowAlt
-        label.foreground = ExplorerTheme.text
-        label.font = if (column == 2 || column == 5) Font(Font.MONOSPACED, Font.PLAIN, 13) else label.font.deriveFont(Font.PLAIN, 13f)
-        label.horizontalAlignment = if (column == 5) SwingConstants.RIGHT else SwingConstants.LEFT
-        when (column) {
-            0 -> {
-                label.foreground = when {
-                    modelValue.startsWith("▤") -> ExplorerTheme.created
-                    modelValue.startsWith("⊘") -> ExplorerTheme.archived
-                    else -> ExplorerTheme.active
-                }
-                label.font = label.font.deriveFont(Font.BOLD)
-            }
-            3 -> {
-                label.text = if (modelValue == SandboxDefaults.SHARED_SYNCHRONIZER_NAME) "◇  global" else "◇  $modelValue"
-                label.foreground = if (modelValue == SandboxDefaults.SHARED_SYNCHRONIZER_NAME) ExplorerTheme.globalSync else ExplorerTheme.privateSync
-            }
-        }
-        label.toolTipText = modelValue
-        return label
-    }
-}
-
 private class SidebarCellRenderer(private val kind: String) : DefaultListCellRenderer() {
     override fun getListCellRendererComponent(
         list: JList<*>,
@@ -1383,71 +1220,6 @@ private class SidebarCellRenderer(private val kind: String) : DefaultListCellRen
             JBUI.Borders.empty(0, 10)
         )
         return label
-    }
-}
-
-private class ExplorerCodeBlock : JComponent() {
-    private var lines: List<String> = emptyList()
-
-    init {
-        preferredSize = Dimension(320, 220)
-        minimumSize = Dimension(220, 160)
-        font = Font(Font.MONOSPACED, Font.PLAIN, 12)
-        border = BorderFactory.createCompoundBorder(
-            RoundedLineBorder(ExplorerTheme.borderSoft, 7),
-            JBUI.Borders.empty(8)
-        )
-    }
-
-    fun setText(text: String) {
-        lines = text.ifBlank { "{}" }.lines().take(120)
-        repaint()
-    }
-
-    override fun paintComponent(g: Graphics) {
-        val g2 = g.create() as Graphics2D
-        try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.color = Color(0x0E1620)
-            g2.fillRoundRect(0, 0, width - 1, height - 1, 7, 7)
-            g2.font = font
-            val metrics = g2.fontMetrics
-            val lineHeight = metrics.height + 2
-            val numberWidth = 34
-            lines.take((height - 16) / lineHeight).forEachIndexed { index, line ->
-                val y = 18 + index * lineHeight
-                g2.color = ExplorerTheme.faintText
-                g2.drawString((index + 1).toString().padStart(2, ' '), 8, y)
-                paintJsonLine(g2, line, numberWidth, y)
-            }
-        } finally {
-            g2.dispose()
-        }
-    }
-
-    private fun paintJsonLine(g2: Graphics2D, line: String, startX: Int, y: Int) {
-        var x = startX
-        val parts = Regex("(\"[^\"]*\"|[0-9]+(?:\\.[0-9]+)?|true|false|null)").findAll(line)
-        var last = 0
-        parts.forEach { match ->
-            x += drawText(g2, line.substring(last, match.range.first), x, y, ExplorerTheme.mutedText)
-            val token = match.value
-            val color = when {
-                token.startsWith("\"") && line.drop(match.range.last + 1).trimStart().startsWith(":") -> Color(0x5CA7FF)
-                token.startsWith("\"") -> ExplorerTheme.active
-                token.first().isDigit() -> ExplorerTheme.warning
-                else -> ExplorerTheme.globalSync
-            }
-            x += drawText(g2, token, x, y, color)
-            last = match.range.last + 1
-        }
-        drawText(g2, line.substring(last), x, y, ExplorerTheme.mutedText)
-    }
-
-    private fun drawText(g2: Graphics2D, text: String, x: Int, y: Int, color: Color): Int {
-        g2.color = color
-        g2.drawString(text, x, y)
-        return g2.fontMetrics.stringWidth(text)
     }
 }
 
@@ -1557,7 +1329,7 @@ internal class NetworkActivityTimelinePanel : ExplorerCard(BorderLayout(), padde
                 val row = marker.row
                 val color = when {
                     row.syncName == SandboxDefaults.SHARED_SYNCHRONIZER_NAME -> ExplorerTheme.globalSync
-                    row.kind == "Archived" -> ExplorerTheme.archived
+                    row.kind == LedgerActivityKind.ARCHIVED -> ExplorerTheme.archived
                     else -> ExplorerTheme.privateSync
                 }
                 g2.color = color
@@ -1610,8 +1382,8 @@ internal class NetworkActivityTimelinePanel : ExplorerCard(BorderLayout(), padde
         g2.color = Color(ExplorerTheme.cardSoft.red, ExplorerTheme.cardSoft.green, ExplorerTheme.cardSoft.blue, 238)
         g2.fillRoundRect(x, y, bubbleWidth, bubbleHeight, 9, 9)
         g2.color = when (row.kind) {
-            "Archived" -> ExplorerTheme.archived
-            "Active" -> ExplorerTheme.created
+            LedgerActivityKind.ARCHIVED -> ExplorerTheme.archived
+            LedgerActivityKind.ACTIVE -> ExplorerTheme.created
             else -> ExplorerTheme.active
         }
         g2.stroke = BasicStroke(1.4f)

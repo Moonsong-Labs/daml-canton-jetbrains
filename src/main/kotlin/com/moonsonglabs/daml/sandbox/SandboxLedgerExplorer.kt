@@ -5,8 +5,6 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import java.nio.file.Files
-import java.nio.file.Path
 
 data class LedgerContractRow(
     val templateId: String,
@@ -57,8 +55,7 @@ data class LedgerExplorerSnapshot(
 )
 
 class SandboxLedgerExplorer(
-    private val client: SandboxTransport = JsonApiClient(),
-    private val projectRoot: Path? = null
+    private val client: SandboxTransport = JsonApiClient()
 ) {
     private data class History(var through: Long = 0, var events: List<LedgerEventRow> = emptyList())
     private val histories = mutableMapOf<String, History>()
@@ -102,7 +99,7 @@ class SandboxLedgerExplorer(
         }.onFailure { warnings += "Current contracts loaded; history unavailable: ${it.message}" }
         if (!complete) warnings += "History incomplete: loaded through participant offset ${history.through} of $ledgerEnd. Load more to continue."
         return LedgerExplorerSnapshot(participant.name, endpoint.url, ledgerEnd, parties, parseActiveContracts(activeResponse.body),
-            history.events.filter { it.kind == "Archived" }, history.events, prettyJson(activeResponse.body), prettyJson(rawUpdates), warnings,
+            history.events.filter { it.kind == LedgerActivityKind.ARCHIVED }, history.events, prettyJson(activeResponse.body), prettyJson(rawUpdates), warnings,
             history.through, complete, parseInFlightContracts(activeResponse.body), known.map { it.id })
     }
 
@@ -158,8 +155,8 @@ class SandboxLedgerExplorer(
                     val assigned = obj.obj("JsAssignmentEvent") ?: obj.obj("AssignedEvent")
                     val unassigned = obj.obj("JsUnassignedEvent") ?: obj.obj("UnassignedEvent")
                     when {
-                        assigned != null -> reassignmentRow(assigned.obj("value") ?: assigned, "Assigned", reassignment.string("offset"))
-                        unassigned != null -> reassignmentRow(unassigned.obj("value") ?: unassigned, "Unassigned", reassignment.string("offset"))
+                        assigned != null -> reassignmentRow(assigned.obj("value") ?: assigned, LedgerActivityKind.ASSIGNED, reassignment.string("offset"), assigned = true)
+                        unassigned != null -> reassignmentRow(unassigned.obj("value") ?: unassigned, LedgerActivityKind.UNASSIGNED, reassignment.string("offset"), assigned = false)
                         else -> null
                     }
                 }
@@ -186,17 +183,17 @@ class SandboxLedgerExplorer(
             val assigned = contract.obj("JsIncompleteAssigned")?.obj("assignedEvent")
             val unassigned = contract.obj("JsIncompleteUnassigned")?.obj("unassignedEvent")
             when {
-                assigned != null -> reassignmentRow(assigned, "In-flight assignment", "")
-                unassigned != null -> reassignmentRow(unassigned, "In-flight unassignment", "")
+                assigned != null -> reassignmentRow(assigned, LedgerActivityKind.IN_FLIGHT_ASSIGNMENT, "", assigned = true)
+                unassigned != null -> reassignmentRow(unassigned, LedgerActivityKind.IN_FLIGHT_UNASSIGNMENT, "", assigned = false)
                 else -> null
             }
         }
 
-    private fun reassignmentRow(event: JsonObject, kind: String, offset: String): LedgerEventRow {
+    private fun reassignmentRow(event: JsonObject, kind: String, offset: String, assigned: Boolean): LedgerEventRow {
         val created = event.obj("createdEvent")?.let { it.obj("CreatedEvent") ?: it }
         val data = created ?: event
         return LedgerEventRow(kind, data.string("templateId"), shortTemplate(data.string("templateId")),
-            data.string("contractId"), offset, if (kind.contains("nassigned") || kind.contains("unassignment")) event.string("source") else event.string("target"),
+            data.string("contractId"), offset, if (assigned) event.string("target") else event.string("source"),
             data.string("packageName"), data.stringArray("witnessParties"), data.obj("createArgument")?.stringMap().orEmpty(), prettyJson(gson.toJson(event)),
             event.string("source"), event.string("target"), event.string("reassignmentId"))
     }
@@ -219,7 +216,7 @@ class SandboxLedgerExplorer(
 
     private fun parseCreatedEvent(event: JsonObject, synchronizerId: String, transactionOffset: String, rawJson: String): LedgerEventRow =
         LedgerEventRow(
-            kind = "Created",
+            kind = LedgerActivityKind.CREATED,
             templateId = event.string("templateId"),
             templateName = shortTemplate(event.string("templateId")),
             contractId = event.string("contractId"),
@@ -233,7 +230,7 @@ class SandboxLedgerExplorer(
 
     private fun parseArchivedEvent(event: JsonObject, synchronizerId: String, transactionOffset: String, rawJson: String): LedgerEventRow =
         LedgerEventRow(
-            kind = "Archived",
+            kind = LedgerActivityKind.ARCHIVED,
             templateId = event.string("templateId"),
             templateName = shortTemplate(event.string("templateId")),
             contractId = event.string("contractId"),

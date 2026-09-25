@@ -8,10 +8,8 @@ import java.awt.Component
 
 /** Native selection, focus, keyboard navigation and IDE theme behavior. Deletion lives in profile settings. */
 internal class ProfileComboBox(
-    model: DefaultComboBoxModel<SandboxProfile>,
-    @Suppress("UNUSED_PARAMETER") onDeleteProfile: (SandboxProfile) -> Unit
+    model: DefaultComboBoxModel<SandboxProfile>
 ) : JComboBox<SandboxProfile>(model) {
-    val isDeletingProfileFromPopup: Boolean = false
     init {
         renderer = object : DefaultListCellRenderer() {
             override fun getListCellRendererComponent(list: JList<*>?, value: Any?, index: Int, selected: Boolean, focus: Boolean): Component =
