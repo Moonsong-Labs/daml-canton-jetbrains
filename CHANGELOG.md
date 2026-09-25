@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.2
+
+- Fixed running Daml Script tests from the editor and routing results to the correct package.
+- Corrected disclosure and divulgence views, party-role filtering, and state between script runs.
+- Improved local binding renames, multiline signatures, scoped searches, and navigation within DAR dependencies.
+- Fixed sandbox lifecycle races, participant refreshes, request drafts, and runtime configuration validation.
+- Removed obsolete UI code and made visual regression checks portable across operating systems.
+
 ## 0.4.0
 
 - Refined the Script Results Tx Tree view with clearer transaction action, decoded event, and party-role sections.
